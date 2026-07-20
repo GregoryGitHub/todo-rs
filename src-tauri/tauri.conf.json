@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "todo-rs",
+  "version": "0.1.0",
+  "identifier": "com.todors.app",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Todo",
+        "width": 380,
+        "height": 560,
+        "minWidth": 300,
+        "minHeight": 300,
+        "resizable": true,
+        "visible": false,
+        "decorations": true,
+        "skipTaskbar": true,
+        "alwaysOnTop": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}

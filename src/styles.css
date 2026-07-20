@@ -1,0 +1,173 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #1c1c1e;
+  --panel: #262629;
+  --panel-hover: #303034;
+  --border: #37373b;
+  --text: #eceef2;
+  --muted: #8b8b93;
+  --accent: #4a90e2;
+  --danger: #e2564a;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.app {
+  height: 100vh;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.counter {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+#new-todo {
+  display: flex;
+  gap: 8px;
+}
+
+#input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  user-select: text;
+}
+
+#input:focus {
+  border-color: var(--accent);
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: #5aa0f2;
+}
+
+#list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+#list::-webkit-scrollbar {
+  width: 6px;
+}
+#list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.item:hover {
+  background: var(--panel);
+}
+
+.item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.item .text {
+  flex: 1;
+  word-break: break-word;
+  font-size: 13px;
+  user-select: text;
+}
+
+.item.done .text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.item .del {
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.item:hover .del {
+  opacity: 1;
+}
+
+.item .del:hover {
+  color: var(--danger);
+  background: transparent;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 24px;
+  font-size: 13px;
+}
