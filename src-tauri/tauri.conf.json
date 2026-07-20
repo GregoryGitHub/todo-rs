@@ -7,20 +7,21 @@
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
         "title": "Todo",
-        "width": 380,
-        "height": 560,
-        "minWidth": 300,
-        "minHeight": 300,
-        "resizable": true,
+        "width": 370,
+        "height": 530,
+        "resizable": false,
         "visible": false,
-        "decorations": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
         "skipTaskbar": true,
-        "alwaysOnTop": false,
-        "center": true
+        "alwaysOnTop": true,
+        "center": false
       }
     ],
     "security": {

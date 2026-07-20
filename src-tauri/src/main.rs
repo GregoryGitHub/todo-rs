@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 use std::fs;
 use std::path::PathBuf;
@@ -15,6 +15,10 @@ struct Todo {
     id: u64,
     text: String,
     done: bool,
+    #[serde(default)]
+    date: String,
+    #[serde(default)]
+    is_my_day: bool,
 }
 
 fn data_file(app: &tauri::AppHandle) -> PathBuf {
@@ -45,6 +49,30 @@ fn save_todos(app: tauri::AppHandle, todos: Vec<Todo>) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn hide_window(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+fn position_near_tray(window: &tauri::WebviewWindow) {
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        if let (Ok(win_size), Ok(scale_factor)) = (window.outer_size(), window.scale_factor()) {
+            let work_area = monitor.work_area();
+            let margin = (12.0 * scale_factor) as i32;
+            let x = work_area.position.x + (work_area.size.width as i32) - (win_size.width as i32) - margin;
+            let y = work_area.position.y + (work_area.size.height as i32) - (win_size.height as i32) - margin;
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+}
+
 fn toggle_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         match window.is_visible() {
@@ -52,6 +80,7 @@ fn toggle_window(app: &tauri::AppHandle) {
                 let _ = window.hide();
             }
             _ => {
+                position_near_tray(&window);
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
@@ -60,20 +89,33 @@ fn toggle_window(app: &tauri::AppHandle) {
     }
 }
 
+fn show_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        position_near_tray(&window);
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![load_todos, save_todos])
+        .invoke_handler(tauri::generate_handler![
+            load_todos,
+            save_todos,
+            hide_window,
+            exit_app
+        ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Hide window instead of closing so app stays alive in tray
-                let _ = window.hide();
                 api.prevent_close();
+                let _ = window.hide();
             }
         })
         .setup(|app| {
-            let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
-            let hide_i = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "Mostrar", true, None::<&str>)?;
+            let hide_i = MenuItem::with_id(app, "hide", "Ocultar", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
 
             let icon = app
@@ -88,11 +130,7 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                        }
+                        show_window(app);
                     }
                     "hide" => {
                         if let Some(w) = app.get_webview_window("main") {
