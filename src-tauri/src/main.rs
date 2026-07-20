@@ -21,6 +21,22 @@ struct Todo {
     is_my_day: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct Note {
+    id: u64,
+    title: String,
+    content: String,
+    created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct AppSettings {
+    #[serde(default)]
+    autostart: bool,
+    #[serde(default)]
+    start_minimized: bool,
+}
+
 fn data_file(app: &tauri::AppHandle) -> PathBuf {
     let mut dir = app
         .path()
@@ -30,6 +46,30 @@ fn data_file(app: &tauri::AppHandle) -> PathBuf {
         let _ = fs::create_dir_all(&dir);
     }
     dir.push("todos.json");
+    dir
+}
+
+fn notes_file(app: &tauri::AppHandle) -> PathBuf {
+    let mut dir = app
+        .path()
+        .app_data_dir()
+        .expect("failed to resolve app data dir");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    dir.push("notes.json");
+    dir
+}
+
+fn settings_file(app: &tauri::AppHandle) -> PathBuf {
+    let mut dir = app
+        .path()
+        .app_data_dir()
+        .expect("failed to resolve app data dir");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    dir.push("settings.json");
     dir
 }
 
@@ -47,6 +87,72 @@ fn save_todos(app: tauri::AppHandle, todos: Vec<Todo>) -> Result<(), String> {
     let path = data_file(&app);
     let json = serde_json::to_string_pretty(&todos).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_notes(app: tauri::AppHandle) -> Vec<Note> {
+    let path = notes_file(&app);
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<Note>>(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_notes(app: tauri::AppHandle, notes: Vec<Note>) -> Result<(), String> {
+    let path = notes_file(&app);
+    let json = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_settings(app: tauri::AppHandle) -> AppSettings {
+    let path = settings_file(&app);
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<AppSettings>(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
+    let path = settings_file(&app);
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            let exe_str = exe_path.to_string_lossy();
+            if settings.autostart {
+                let _ = std::process::Command::new("reg")
+                    .args(&[
+                        "add",
+                        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                        "/v",
+                        "TodoRS",
+                        "/t",
+                        "REG_SZ",
+                        "/d",
+                        &format!("\"{}\"", exe_str),
+                        "/f",
+                    ])
+                    .output();
+            } else {
+                let _ = std::process::Command::new("reg")
+                    .args(&[
+                        "delete",
+                        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                        "/v",
+                        "TodoRS",
+                        "/f",
+                    ])
+                    .output();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -103,6 +209,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             load_todos,
             save_todos,
+            load_notes,
+            save_notes,
+            load_settings,
+            save_settings,
             hide_window,
             exit_app
         ])
@@ -153,6 +263,12 @@ fn main() {
                     }
                 })
                 .build(app)?;
+
+            // Check if start_minimized is false, then show window on launch
+            let settings = load_settings(app.handle().clone());
+            if !settings.start_minimized {
+                show_window(app.handle());
+            }
 
             Ok(())
         })

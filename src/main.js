@@ -1,5 +1,12 @@
 const { invoke } = window.__TAURI__?.core || { invoke: async () => [] };
 
+// Navigation & View elements
+const bottomNav = document.getElementById("bottom-nav");
+const viewTasks = document.getElementById("view-tasks");
+const viewNotes = document.getElementById("view-notes");
+const viewSettings = document.getElementById("view-settings");
+
+// Tasks elements
 const listEl = document.getElementById("list");
 const formEl = document.getElementById("new-todo");
 const inputEl = document.getElementById("input");
@@ -39,6 +46,24 @@ const btnPomoReset = document.getElementById("btn-pomo-reset");
 const pomoWorkInput = document.getElementById("pomo-work-input");
 const pomoBreakInput = document.getElementById("pomo-break-input");
 
+// Notes elements
+const btnNewNote = document.getElementById("btn-new-note");
+const notesListEl = document.getElementById("notes-list");
+const notesEmptyEl = document.getElementById("notes-empty");
+const modalNoteEditor = document.getElementById("modal-note-editor");
+const noteModalClose = document.getElementById("note-modal-close");
+const noteModalTitleEl = document.getElementById("note-modal-title");
+const noteTitleInput = document.getElementById("note-title-input");
+const noteContentInput = document.getElementById("note-content-input");
+const btnSaveNote = document.getElementById("btn-save-note");
+const btnCancelNote = document.getElementById("btn-cancel-note");
+const btnDeleteNote = document.getElementById("btn-delete-note");
+
+// Settings elements
+const settingAutostart = document.getElementById("setting-autostart");
+const settingStartMinimized = document.getElementById("setting-start-minimized");
+
+// FontAwesome Icons
 const FA_CHECKED = `<i class="fa-solid fa-circle-check"></i>`;
 const FA_UNCHECKED = `<i class="fa-regular fa-circle"></i>`;
 const FA_CALENDAR = `<i class="fa-regular fa-calendar"></i>`;
@@ -50,7 +75,11 @@ const FA_CLOCK = `<i class="fa-regular fa-clock"></i>`;
 const FA_STOPWATCH = `<i class="fa-solid fa-stopwatch"></i>`;
 
 let todos = [];
+let notes = [];
+let settings = { autostart: false, start_minimized: false };
 let currentView = "my_day"; // "my_day" | "all"
+let activeMainView = "tasks"; // "tasks" | "notes" | "settings"
+let currentEditingNoteId = null;
 
 // Pomodoro global state
 let activePomoTaskId = null;
@@ -117,20 +146,28 @@ function formatTime(seconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+// Data loading & persistence
 async function load() {
   try {
-    const raw = await invoke("load_todos");
+    const rawTodos = await invoke("load_todos");
     const today = getTodayStr();
-    todos = (raw || []).map((t) => ({
+    todos = (rawTodos || []).map((t) => ({
       ...t,
       date: t.date || today,
       is_my_day: t.is_my_day ?? (t.date === today),
     }));
+
+    notes = (await invoke("load_notes")) || [];
+    settings = (await invoke("load_settings")) || { autostart: false, start_minimized: false };
   } catch (e) {
-    console.error("load_todos failed", e);
-    todos = [];
+    console.error("load failed", e);
   }
+
+  settingAutostart.checked = !!settings.autostart;
+  settingStartMinimized.checked = !!settings.start_minimized;
+
   render();
+  renderNotes();
 }
 
 async function persist() {
@@ -141,6 +178,55 @@ async function persist() {
   }
 }
 
+async function persistNotes() {
+  try {
+    await invoke("save_notes", { notes });
+  } catch (e) {
+    console.error("save_notes failed", e);
+  }
+}
+
+async function persistSettings() {
+  try {
+    await invoke("save_settings", { settings });
+  } catch (e) {
+    console.error("save_settings failed", e);
+  }
+}
+
+// Bottom Navigation Switching
+bottomNav.addEventListener("click", (e) => {
+  const tabBtn = e.target.closest(".bottom-tab");
+  if (!tabBtn) return;
+
+  const targetView = tabBtn.dataset.view;
+  if (!targetView || targetView === activeMainView) return;
+
+  activeMainView = targetView;
+
+  document.querySelectorAll(".bottom-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === targetView);
+  });
+
+  viewTasks.hidden = targetView !== "tasks";
+  viewNotes.hidden = targetView !== "notes";
+  viewSettings.hidden = targetView !== "settings";
+
+  if (targetView === "notes") renderNotes();
+});
+
+// Settings Handlers
+settingAutostart.addEventListener("change", () => {
+  settings.autostart = settingAutostart.checked;
+  persistSettings();
+});
+
+settingStartMinimized.addEventListener("change", () => {
+  settings.start_minimized = settingStartMinimized.checked;
+  persistSettings();
+});
+
+// Tasks logic
 function getFilteredTodos() {
   const today = getTodayStr();
   if (currentView === "my_day") {
@@ -209,7 +295,6 @@ function startPomodoroTimer() {
       pomoState.secondsRemaining--;
       pomoTimeDisplayEl.textContent = formatTime(pomoState.secondsRemaining);
     } else {
-      // Timer finished
       playChimeSound();
       if (pomoState.mode === "work") {
         pomoState.mode = "break";
@@ -349,6 +434,120 @@ function render() {
 
   updateCounter();
 }
+
+// Notes Logic
+function renderNotes() {
+  notesListEl.innerHTML = "";
+  notesEmptyEl.hidden = notes.length > 0;
+
+  for (const note of notes) {
+    const card = document.createElement("div");
+    card.className = "note-card";
+
+    const titleEl = document.createElement("h4");
+    titleEl.className = "note-card-title";
+    titleEl.textContent = note.title || "Sem título";
+
+    const contentEl = document.createElement("p");
+    contentEl.className = "note-card-snippet";
+    contentEl.textContent = note.content || "Sem conteúdo";
+
+    const footerEl = document.createElement("div");
+    footerEl.className = "note-card-footer";
+
+    const dateEl = document.createElement("span");
+    dateEl.className = "note-card-date";
+    dateEl.textContent = note.created_at || "";
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn-icon del";
+    delBtn.title = "Excluir nota";
+    delBtn.innerHTML = FA_TRASH;
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      notes = notes.filter((n) => n.id !== note.id);
+      persistNotes();
+      renderNotes();
+    });
+
+    footerEl.append(dateEl, delBtn);
+    card.append(titleEl, contentEl, footerEl);
+
+    card.addEventListener("click", () => {
+      openNoteEditor(note);
+    });
+
+    notesListEl.appendChild(card);
+  }
+}
+
+function openNoteEditor(note = null) {
+  if (note) {
+    currentEditingNoteId = note.id;
+    noteModalTitleEl.innerHTML = `<i class="fa-solid fa-pen"></i> Editar Nota`;
+    noteTitleInput.value = note.title;
+    noteContentInput.value = note.content;
+    btnDeleteNote.hidden = false;
+  } else {
+    currentEditingNoteId = null;
+    noteModalTitleEl.innerHTML = `<i class="fa-solid fa-plus"></i> Nova Nota`;
+    noteTitleInput.value = "";
+    noteContentInput.value = "";
+    btnDeleteNote.hidden = true;
+  }
+  modalNoteEditor.hidden = false;
+  noteTitleInput.focus();
+}
+
+btnNewNote.addEventListener("click", () => {
+  openNoteEditor(null);
+});
+
+noteModalClose.addEventListener("click", () => {
+  modalNoteEditor.hidden = true;
+});
+
+btnCancelNote.addEventListener("click", () => {
+  modalNoteEditor.hidden = true;
+});
+
+btnDeleteNote.addEventListener("click", () => {
+  if (currentEditingNoteId) {
+    notes = notes.filter((n) => n.id !== currentEditingNoteId);
+    persistNotes();
+    renderNotes();
+  }
+  modalNoteEditor.hidden = true;
+});
+
+btnSaveNote.addEventListener("click", () => {
+  const title = noteTitleInput.value.trim();
+  const content = noteContentInput.value.trim();
+
+  if (!title && !content) return;
+
+  const todayStr = formatDateLabel(getTodayStr());
+
+  if (currentEditingNoteId) {
+    const note = notes.find((n) => n.id === currentEditingNoteId);
+    if (note) {
+      note.title = title || "Sem título";
+      note.content = content;
+    }
+  } else {
+    notes.unshift({
+      id: Date.now(),
+      title: title || "Sem título",
+      content,
+      created_at: todayStr,
+    });
+  }
+
+  persistNotes();
+  renderNotes();
+  modalNoteEditor.hidden = true;
+});
 
 // Window controls & Menu
 btnHide.addEventListener("click", () => {
@@ -515,7 +714,9 @@ pomoBreakInput.addEventListener("change", () => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (!modalPomodoro.hidden) {
+    if (!modalNoteEditor.hidden) {
+      modalNoteEditor.hidden = true;
+    } else if (!modalPomodoro.hidden) {
       modalPomodoro.hidden = true;
     } else if (!modalReschedule.hidden) {
       modalReschedule.hidden = true;

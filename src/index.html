@@ -49,53 +49,128 @@
         </div>
       </div>
 
-      <!-- Main Header -->
-      <header class="app-header">
-        <div class="header-title">
-          <h1 id="view-title">
-            <i class="fa-solid fa-sun"></i> Meu Dia
-          </h1>
-          <span id="counter" class="counter">0</span>
-        </div>
-        <button id="btn-reschedule-open" class="btn-secondary" title="Mover pendentes para o próximo dia">
-          <i class="fa-solid fa-calendar-plus"></i>
-          <span class="btn-label">Mover</span>
-        </button>
-      </header>
+      <!-- Main Content Views Container -->
+      <div class="views-container">
+        <!-- VIEW 1: TASKS -->
+        <div id="view-tasks" class="view-panel active">
+          <!-- Main Header -->
+          <header class="app-header">
+            <div class="header-title">
+              <h1 id="view-title">
+                <i class="fa-solid fa-sun"></i> Meu Dia
+              </h1>
+              <span id="counter" class="counter">0</span>
+            </div>
+            <button id="btn-reschedule-open" class="btn-secondary" title="Mover pendentes para o próximo dia">
+              <i class="fa-solid fa-calendar-plus"></i>
+              <span class="btn-label">Mover</span>
+            </button>
+          </header>
 
-      <!-- Navigation Tabs -->
-      <nav class="nav-tabs">
-        <button id="tab-my-day" class="tab-btn active">
-          <i class="fa-solid fa-sun"></i> Meu Dia
+          <!-- Navigation Tabs -->
+          <nav class="nav-tabs">
+            <button id="tab-my-day" class="tab-btn active">
+              <i class="fa-solid fa-sun"></i> Meu Dia
+            </button>
+            <button id="tab-all" class="tab-btn">
+              <i class="fa-solid fa-list-check"></i> Todas
+            </button>
+          </nav>
+
+          <!-- New Todo Form -->
+          <form id="new-todo" autocomplete="off">
+            <div class="input-wrapper">
+              <i class="fa-solid fa-plus input-icon"></i>
+              <input
+                id="input"
+                type="text"
+                placeholder="Adicionar uma tarefa..."
+                maxlength="200"
+                autofocus
+              />
+            </div>
+            <button type="submit" class="btn-add" aria-label="Adicionar">
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </form>
+
+          <!-- Todo List -->
+          <ul id="list" class="todo-list"></ul>
+          <p id="empty" class="empty" hidden>
+            <i class="fa-solid fa-circle-check empty-icon"></i><br />
+            <span id="empty-text">Sem tarefas. Bora produzir!</span>
+          </p>
+        </div>
+
+        <!-- VIEW 2: NOTES -->
+        <div id="view-notes" class="view-panel" hidden>
+          <header class="app-header">
+            <div class="header-title">
+              <h1>
+                <i class="fa-solid fa-note-sticky"></i> Notas Rápidas
+              </h1>
+            </div>
+            <button id="btn-new-note" class="btn-primary">
+              <i class="fa-solid fa-plus"></i> Nova Nota
+            </button>
+          </header>
+
+          <!-- Notes List -->
+          <div id="notes-list" class="notes-grid"></div>
+          <p id="notes-empty" class="empty" hidden>
+            <i class="fa-regular fa-note-sticky empty-icon"></i><br />
+            <span>Nenhuma nota criada ainda.</span>
+          </p>
+        </div>
+
+        <!-- VIEW 3: SETTINGS -->
+        <div id="view-settings" class="view-panel" hidden>
+          <header class="app-header">
+            <div class="header-title">
+              <h1>
+                <i class="fa-solid fa-gear"></i> Configurações
+              </h1>
+            </div>
+          </header>
+
+          <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-title">Iniciar com o sistema</span>
+                <span class="setting-desc">Abrir o app automaticamente ao ligar o PC.</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-autostart" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-title">Iniciar minimizado</span>
+                <span class="setting-desc">Abrir o app oculto na bandeja do sistema.</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-start-minimized" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- iOS-Style Bottom Icon Tab Bar -->
+      <nav id="bottom-nav" class="bottom-nav">
+        <button class="bottom-tab active" data-view="tasks" title="Tarefas">
+          <i class="fa-solid fa-list-check"></i>
         </button>
-        <button id="tab-all" class="tab-btn">
-          <i class="fa-solid fa-list-check"></i> Todas
+        <button class="bottom-tab" data-view="notes" title="Notas Rápidas">
+          <i class="fa-solid fa-note-sticky"></i>
+        </button>
+        <button class="bottom-tab" data-view="settings" title="Configurações">
+          <i class="fa-solid fa-gear"></i>
         </button>
       </nav>
-
-      <!-- New Todo Form -->
-      <form id="new-todo" autocomplete="off">
-        <div class="input-wrapper">
-          <i class="fa-solid fa-plus input-icon"></i>
-          <input
-            id="input"
-            type="text"
-            placeholder="Adicionar uma tarefa..."
-            maxlength="200"
-            autofocus
-          />
-        </div>
-        <button type="submit" class="btn-add" aria-label="Adicionar">
-          <i class="fa-solid fa-arrow-right"></i>
-        </button>
-      </form>
-
-      <!-- Todo List -->
-      <ul id="list" class="todo-list"></ul>
-      <p id="empty" class="empty" hidden>
-        <i class="fa-solid fa-circle-check empty-icon"></i><br />
-        <span id="empty-text">Sem tarefas. Bora produzir!</span>
-      </p>
 
       <!-- Reschedule Modal -->
       <div id="modal-reschedule" class="modal-overlay" hidden>
@@ -172,6 +247,31 @@
                 <input type="number" id="pomo-break-input" min="1" max="60" value="5" class="pomo-num-input" />
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Note Editor Modal -->
+      <div id="modal-note-editor" class="modal-overlay" hidden>
+        <div class="modal-content note-modal-content">
+          <div class="modal-header">
+            <h3 id="note-modal-title">
+              <i class="fa-solid fa-pen"></i> Nova Nota
+            </h3>
+            <button id="note-modal-close" class="btn-icon" aria-label="Fechar">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <input type="text" id="note-title-input" placeholder="Título da nota..." class="note-title-input" />
+            <textarea id="note-content-input" placeholder="Escreva sua nota aqui..." class="note-content-input" rows="6"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button id="btn-delete-note" class="btn-flat danger" hidden>Excluir</button>
+            <button id="btn-cancel-note" class="btn-flat">Cancelar</button>
+            <button id="btn-save-note" class="btn-primary">
+              <i class="fa-solid fa-floppy-disk"></i> Salvar
+            </button>
           </div>
         </div>
       </div>
