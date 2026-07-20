@@ -281,21 +281,6 @@ function createTodoItemElement(todo, today) {
     contentDiv.appendChild(dateBadge);
   }
 
-  // Toggle "Meu Dia" button
-  const myDayBtn = document.createElement("button");
-  myDayBtn.type = "button";
-  myDayBtn.className = "btn-icon btn-sun" + (todo.is_my_day ? " active" : "");
-  myDayBtn.title = todo.is_my_day ? "Remover de Meu Dia" : "Adicionar a Meu Dia";
-  myDayBtn.innerHTML = todo.is_my_day ? FA_SUN_SOLID : FA_SUN_REGULAR;
-  myDayBtn.addEventListener("click", () => {
-    todo.is_my_day = !todo.is_my_day;
-    if (todo.is_my_day) {
-      todo.date = today;
-    }
-    persist();
-    render();
-  });
-
   // Delete button
   const delBtn = document.createElement("button");
   delBtn.type = "button";
@@ -328,9 +313,9 @@ function createTodoItemElement(todo, today) {
       openPomodoroModal(todo);
     });
 
-    actionsDiv.append(pomoBtn, myDayBtn, delBtn);
+    actionsDiv.append(pomoBtn, delBtn);
   } else {
-    actionsDiv.append(myDayBtn, delBtn);
+    actionsDiv.append(delBtn);
   }
 
   li.append(checkBtn, contentDiv, actionsDiv);

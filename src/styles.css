@@ -511,14 +511,6 @@ body {
   animation: pulse 1.5s infinite;
 }
 
-.btn-sun i {
-  color: var(--muted);
-}
-
-.btn-sun.active i {
-  color: var(--text);
-}
-
 .btn-icon.del:hover i {
   color: var(--danger);
 }
