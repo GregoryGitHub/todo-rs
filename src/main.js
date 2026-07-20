@@ -102,79 +102,99 @@ function updateCounter() {
   emptyEl.hidden = filtered.length > 0;
 }
 
+function createTodoItemElement(todo, today) {
+  const li = document.createElement("li");
+  li.className = "item" + (todo.done ? " done" : "");
+
+  // Checkbox button
+  const checkBtn = document.createElement("button");
+  checkBtn.type = "button";
+  checkBtn.className = "check-btn" + (todo.done ? " checked" : "");
+  checkBtn.setAttribute("aria-label", todo.done ? "Desmarcar" : "Concluir");
+  checkBtn.innerHTML = todo.done ? FA_CHECKED : FA_UNCHECKED;
+  checkBtn.addEventListener("click", () => {
+    todo.done = !todo.done;
+    persist();
+    render();
+  });
+
+  // Content container
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "item-content";
+
+  const textSpan = document.createElement("span");
+  textSpan.className = "text";
+  textSpan.textContent = todo.text;
+
+  contentDiv.appendChild(textSpan);
+
+  // Date badge
+  if (todo.date) {
+    const dateBadge = document.createElement("span");
+    dateBadge.className = "date-badge" + (todo.date < today && !todo.done ? " overdue" : "");
+    dateBadge.innerHTML = `${FA_CALENDAR} ${formatDateLabel(todo.date)}`;
+    contentDiv.appendChild(dateBadge);
+  }
+
+  // Toggle "Meu Dia" button
+  const myDayBtn = document.createElement("button");
+  myDayBtn.type = "button";
+  myDayBtn.className = "btn-icon btn-sun" + (todo.is_my_day ? " active" : "");
+  myDayBtn.title = todo.is_my_day ? "Remover de Meu Dia" : "Adicionar a Meu Dia";
+  myDayBtn.innerHTML = todo.is_my_day ? FA_SUN_SOLID : FA_SUN_REGULAR;
+  myDayBtn.addEventListener("click", () => {
+    todo.is_my_day = !todo.is_my_day;
+    if (todo.is_my_day) {
+      todo.date = today;
+    }
+    persist();
+    render();
+  });
+
+  // Delete button
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "btn-icon del";
+  delBtn.setAttribute("aria-label", "Remover");
+  delBtn.title = "Excluir tarefa";
+  delBtn.innerHTML = FA_TRASH;
+  delBtn.addEventListener("click", () => {
+    todos = todos.filter((t) => t.id !== todo.id);
+    persist();
+    render();
+  });
+
+  const actionsDiv = document.createElement("div");
+  actionsDiv.className = "item-actions";
+  actionsDiv.append(myDayBtn, delBtn);
+
+  li.append(checkBtn, contentDiv, actionsDiv);
+  return li;
+}
+
 function render() {
   listEl.innerHTML = "";
   const today = getTodayStr();
   const filtered = getFilteredTodos();
 
-  for (const todo of filtered) {
-    const li = document.createElement("li");
-    li.className = "item" + (todo.done ? " done" : "");
+  const pending = filtered.filter((t) => !t.done);
+  const completed = filtered.filter((t) => t.done);
 
-    // Checkbox button
-    const checkBtn = document.createElement("button");
-    checkBtn.type = "button";
-    checkBtn.className = "check-btn" + (todo.done ? " checked" : "");
-    checkBtn.setAttribute("aria-label", todo.done ? "Desmarcar" : "Concluir");
-    checkBtn.innerHTML = todo.done ? FA_CHECKED : FA_UNCHECKED;
-    checkBtn.addEventListener("click", () => {
-      todo.done = !todo.done;
-      persist();
-      render();
-    });
+  // Render pending tasks first
+  for (const todo of pending) {
+    listEl.appendChild(createTodoItemElement(todo, today));
+  }
 
-    // Content container
-    const contentDiv = document.createElement("div");
-    contentDiv.className = "item-content";
+  // Render completed divider and completed tasks at the bottom
+  if (completed.length > 0) {
+    const divider = document.createElement("li");
+    divider.className = "completed-divider";
+    divider.innerHTML = `<span>Concluídas</span>`;
+    listEl.appendChild(divider);
 
-    const textSpan = document.createElement("span");
-    textSpan.className = "text";
-    textSpan.textContent = todo.text;
-
-    contentDiv.appendChild(textSpan);
-
-    // Date badge
-    if (todo.date) {
-      const dateBadge = document.createElement("span");
-      dateBadge.className = "date-badge" + (todo.date < today && !todo.done ? " overdue" : "");
-      dateBadge.innerHTML = `${FA_CALENDAR} ${formatDateLabel(todo.date)}`;
-      contentDiv.appendChild(dateBadge);
+    for (const todo of completed) {
+      listEl.appendChild(createTodoItemElement(todo, today));
     }
-
-    // Toggle "Meu Dia" button
-    const myDayBtn = document.createElement("button");
-    myDayBtn.type = "button";
-    myDayBtn.className = "btn-icon btn-sun" + (todo.is_my_day ? " active" : "");
-    myDayBtn.title = todo.is_my_day ? "Remover de Meu Dia" : "Adicionar a Meu Dia";
-    myDayBtn.innerHTML = todo.is_my_day ? FA_SUN_SOLID : FA_SUN_REGULAR;
-    myDayBtn.addEventListener("click", () => {
-      todo.is_my_day = !todo.is_my_day;
-      if (todo.is_my_day) {
-        todo.date = today;
-      }
-      persist();
-      render();
-    });
-
-    // Delete button
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "btn-icon del";
-    delBtn.setAttribute("aria-label", "Remover");
-    delBtn.title = "Excluir tarefa";
-    delBtn.innerHTML = FA_TRASH;
-    delBtn.addEventListener("click", () => {
-      todos = todos.filter((t) => t.id !== todo.id);
-      persist();
-      render();
-    });
-
-    const actionsDiv = document.createElement("div");
-    actionsDiv.className = "item-actions";
-    actionsDiv.append(myDayBtn, delBtn);
-
-    li.append(checkBtn, contentDiv, actionsDiv);
-    listEl.appendChild(li);
   }
 
   updateCounter();
