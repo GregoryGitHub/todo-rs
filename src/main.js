@@ -256,6 +256,9 @@ function createTodoItemElement(todo, today) {
   checkBtn.innerHTML = todo.done ? FA_CHECKED : FA_UNCHECKED;
   checkBtn.addEventListener("click", () => {
     todo.done = !todo.done;
+    if (todo.done && pomoState.taskId === todo.id) {
+      pausePomodoroTimer();
+    }
     persist();
     render();
   });
@@ -277,17 +280,6 @@ function createTodoItemElement(todo, today) {
     dateBadge.innerHTML = `${FA_CALENDAR} ${formatDateLabel(todo.date)}`;
     contentDiv.appendChild(dateBadge);
   }
-
-  // Pomodoro clock button
-  const pomoBtn = document.createElement("button");
-  pomoBtn.type = "button";
-  const isPomoActive = pomoState.isRunning && pomoState.taskId === todo.id;
-  pomoBtn.className = "btn-icon btn-pomo" + (isPomoActive ? " active" : "");
-  pomoBtn.title = "Timer Pomodoro";
-  pomoBtn.innerHTML = isPomoActive ? FA_STOPWATCH : FA_CLOCK;
-  pomoBtn.addEventListener("click", () => {
-    openPomodoroModal(todo);
-  });
 
   // Toggle "Meu Dia" button
   const myDayBtn = document.createElement("button");
@@ -323,7 +315,23 @@ function createTodoItemElement(todo, today) {
 
   const actionsDiv = document.createElement("div");
   actionsDiv.className = "item-actions";
-  actionsDiv.append(pomoBtn, myDayBtn, delBtn);
+
+  if (!todo.done) {
+    // Pomodoro clock button (only for pending tasks)
+    const pomoBtn = document.createElement("button");
+    pomoBtn.type = "button";
+    const isPomoActive = pomoState.isRunning && pomoState.taskId === todo.id;
+    pomoBtn.className = "btn-icon btn-pomo" + (isPomoActive ? " active" : "");
+    pomoBtn.title = "Timer Pomodoro";
+    pomoBtn.innerHTML = isPomoActive ? FA_STOPWATCH : FA_CLOCK;
+    pomoBtn.addEventListener("click", () => {
+      openPomodoroModal(todo);
+    });
+
+    actionsDiv.append(pomoBtn, myDayBtn, delBtn);
+  } else {
+    actionsDiv.append(myDayBtn, delBtn);
+  }
 
   li.append(checkBtn, contentDiv, actionsDiv);
   return li;
