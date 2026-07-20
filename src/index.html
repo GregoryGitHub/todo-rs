@@ -125,6 +125,56 @@
           </div>
         </div>
       </div>
+
+      <!-- Pomodoro Modal -->
+      <div id="modal-pomodoro" class="modal-overlay" hidden>
+        <div class="modal-content pomodoro-modal-content">
+          <div class="modal-header">
+            <h3>
+              <i class="fa-solid fa-stopwatch"></i> Timer Pomodoro
+            </h3>
+            <button id="pomodoro-modal-close" class="btn-icon" aria-label="Fechar">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="modal-body pomodoro-body">
+            <p id="pomodoro-task-name" class="pomodoro-task-title">Nome da Tarefa</p>
+            
+            <div id="pomodoro-mode-badge" class="pomo-mode-badge work">
+              <i id="pomo-badge-icon" class="fa-solid fa-brain"></i>
+              <span id="pomo-badge-text">Foco</span>
+            </div>
+
+            <!-- Big Timer Counter -->
+            <div class="pomodoro-timer-display">
+              <span id="pomodoro-time-display">25:00</span>
+            </div>
+
+            <!-- Controls: Start/Pause, Reset -->
+            <div class="pomodoro-controls">
+              <button id="btn-pomo-toggle" class="btn-primary btn-pomo-main">
+                <i id="pomo-toggle-icon" class="fa-solid fa-play"></i>
+                <span id="pomo-toggle-text">Iniciar</span>
+              </button>
+              <button id="btn-pomo-reset" class="btn-secondary" title="Reiniciar Timer">
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
+            </div>
+
+            <!-- Quick Settings -->
+            <div class="pomodoro-settings">
+              <div class="pomo-input-group">
+                <label for="pomo-work-input">Foco (min)</label>
+                <input type="number" id="pomo-work-input" min="1" max="120" value="25" class="pomo-num-input" />
+              </div>
+              <div class="pomo-input-group">
+                <label for="pomo-break-input">Pausa (min)</label>
+                <input type="number" id="pomo-break-input" min="1" max="60" value="5" class="pomo-num-input" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
     <script type="module" src="main.js"></script>
   </body>

@@ -506,6 +506,11 @@ body {
   gap: 2px;
 }
 
+.btn-pomo.active i {
+  color: var(--accent) !important;
+  animation: pulse 1.5s infinite;
+}
+
 .btn-sun i {
   color: var(--muted);
 }
@@ -580,6 +585,125 @@ body {
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   overflow: hidden;
   animation: popIn 0.15s ease;
+}
+
+/* Pomodoro Modal Styles */
+.pomodoro-modal-content {
+  max-width: 300px;
+}
+
+.pomodoro-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 16px 14px;
+}
+
+.pomodoro-task-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.pomo-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.pomo-mode-badge.work {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.pomo-mode-badge.work i {
+  color: var(--accent);
+}
+
+.pomo-mode-badge.break {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.pomo-mode-badge.break i {
+  color: #10b981;
+}
+
+.pomodoro-timer-display {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+
+.pomodoro-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.btn-pomo-main {
+  flex: 1;
+  justify-content: center;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.pomodoro-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 12px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.pomo-input-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.pomo-input-group label {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.pomo-num-input {
+  width: 60px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+  font-family: inherit;
+}
+
+.pomo-num-input:focus {
+  border-color: var(--accent);
 }
 
 .modal-header {
@@ -663,4 +787,10 @@ body {
 @keyframes popIn {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+  100% { transform: scale(1); }
 }
