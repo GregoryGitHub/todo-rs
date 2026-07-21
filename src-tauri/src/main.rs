@@ -245,6 +245,7 @@ fn position_near_tray(window: &tauri::WebviewWindow, tray_rect: Option<tauri::Re
     }
 }
 
+#[allow(dead_code)]
 fn toggle_window(app: &tauri::AppHandle, tray_rect: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
         match window.is_visible() {
@@ -312,13 +313,11 @@ fn main() {
             let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
 
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .expect("bundle should include a default icon");
+            let tray_white = tauri::image::Image::new(include_bytes!("../icons/tray_white.rgba"), 64, 64);
 
             let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(icon)
+                .icon(tray_white)
+                .icon_as_template(true)
                 .tooltip("Todo")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -344,7 +343,7 @@ fn main() {
                         ..
                     } = event
                     {
-                        toggle_window(tray.app_handle(), Some(rect));
+                        show_window(tray.app_handle(), Some(rect));
                     }
                 })
                 .build(app)?;
