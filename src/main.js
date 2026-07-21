@@ -12,7 +12,8 @@ const formEl = document.getElementById("new-todo");
 const inputEl = document.getElementById("input");
 const counterEl = document.getElementById("counter");
 const emptyEl = document.getElementById("empty");
-const viewTitleEl = document.getElementById("view-title");
+const viewTitleIconEl = document.getElementById("view-title-icon");
+const viewTitleTextEl = document.getElementById("view-title-text");
 const tabMyDay = document.getElementById("tab-my-day");
 const tabAll = document.getElementById("tab-all");
 
@@ -599,7 +600,8 @@ tabMyDay.addEventListener("click", () => {
   currentView = "my_day";
   tabMyDay.classList.add("active");
   tabAll.classList.remove("active");
-  viewTitleEl.innerHTML = `${FA_SUN_SOLID} Meu Dia`;
+  if (viewTitleIconEl) viewTitleIconEl.className = "fa-solid fa-sun";
+  if (viewTitleTextEl) viewTitleTextEl.textContent = "Meu Dia";
   render();
 });
 
@@ -607,7 +609,8 @@ tabAll.addEventListener("click", () => {
   currentView = "all";
   tabAll.classList.add("active");
   tabMyDay.classList.remove("active");
-  viewTitleEl.innerHTML = `${FA_LIST} Todas as Tarefas`;
+  if (viewTitleIconEl) viewTitleIconEl.className = "fa-solid fa-list-check";
+  if (viewTitleTextEl) viewTitleTextEl.textContent = "Todas";
   render();
 });
 
