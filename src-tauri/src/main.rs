@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs;
 use std::path::PathBuf;
@@ -152,6 +152,26 @@ fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), Str
         }
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Ok(config_dir) = app.path().config_dir() {
+                let autostart_dir = config_dir.join("autostart");
+                let desktop_file = autostart_dir.join("todo-rs.desktop");
+                if settings.autostart {
+                    let _ = fs::create_dir_all(&autostart_dir);
+                    let content = format!(
+                        "[Desktop Entry]\nType=Application\nName=TodoRS\nExec=env GDK_BACKEND=x11 \"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+                        exe_path.display()
+                    );
+                    let _ = fs::write(desktop_file, content);
+                } else if desktop_file.exists() {
+                    let _ = fs::remove_file(desktop_file);
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -167,44 +187,108 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-fn position_near_tray(window: &tauri::WebviewWindow) {
-    if let Ok(Some(monitor)) = window.primary_monitor() {
-        if let (Ok(win_size), Ok(scale_factor)) = (window.outer_size(), window.scale_factor()) {
-            let work_area = monitor.work_area();
-            let margin = (12.0 * scale_factor) as i32;
-            let x = work_area.position.x + (work_area.size.width as i32) - (win_size.width as i32) - margin;
-            let y = work_area.position.y + (work_area.size.height as i32) - (win_size.height as i32) - margin;
-            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-        }
+fn position_near_tray(window: &tauri::WebviewWindow, tray_rect: Option<tauri::Rect>) {
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.available_monitors().ok().and_then(|ms| ms.into_iter().next()));
+
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let win_size = match window.outer_size() {
+        Ok(s) if s.width > 0 && s.height > 0 => s,
+        _ => tauri::PhysicalSize::new((370.0 * scale_factor) as u32, (530.0 * scale_factor) as u32),
+    };
+
+    if let Some(monitor) = monitor {
+        let work_area = monitor.work_area();
+        let margin = (12.0 * scale_factor) as i32;
+
+        let (rx, ry, rw, rh) = if let Some(rect) = tray_rect {
+            let pos = match rect.position {
+                tauri::Position::Physical(p) => (p.x, p.y),
+                tauri::Position::Logical(l) => ((l.x * scale_factor) as i32, (l.y * scale_factor) as i32),
+            };
+            let s = match rect.size {
+                tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
+                tauri::Size::Logical(l) => ((l.width * scale_factor) as i32, (l.height * scale_factor) as i32),
+            };
+            (pos.0, pos.1, s.0, s.1)
+        } else {
+            (0, 0, 0, 0)
+        };
+
+        let (target_x, target_y) = if rw > 0 && rh > 0 {
+            let tx = rx + (rw / 2) - (win_size.width as i32 / 2);
+            let ty = if ry < (work_area.position.y + work_area.size.height as i32 / 2) {
+                ry + rh + margin
+            } else {
+                ry - (win_size.height as i32) - margin
+            };
+            (tx, ty)
+        } else {
+            let tx = work_area.position.x + (work_area.size.width as i32) - (win_size.width as i32) - margin;
+            let ty = work_area.position.y + (work_area.size.height as i32) - (win_size.height as i32) - margin;
+            (tx, ty)
+        };
+
+        let max_x = work_area.position.x + (work_area.size.width as i32) - (win_size.width as i32) - margin;
+        let max_y = work_area.position.y + (work_area.size.height as i32) - (win_size.height as i32) - margin;
+        let min_x = work_area.position.x + margin;
+        let min_y = work_area.position.y + margin;
+
+        let final_x = target_x.clamp(min_x, max_x);
+        let final_y = target_y.clamp(min_y, max_y);
+
+        let _ = window.set_position(tauri::PhysicalPosition::new(final_x, final_y));
     }
 }
 
-fn toggle_window(app: &tauri::AppHandle) {
+fn toggle_window(app: &tauri::AppHandle, tray_rect: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
         match window.is_visible() {
             Ok(true) => {
                 let _ = window.hide();
             }
             _ => {
-                position_near_tray(&window);
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
+                position_near_tray(&window, tray_rect);
+
+                let window_clone = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    position_near_tray(&window_clone, tray_rect);
+                });
             }
         }
     }
 }
 
-fn show_window(app: &tauri::AppHandle) {
+fn show_window(app: &tauri::AppHandle, tray_rect: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
-        position_near_tray(&window);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        position_near_tray(&window, tray_rect);
+
+        let window_clone = window.clone();
+        tauri::async_runtime::spawn(async move {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            position_near_tray(&window_clone, tray_rect);
+        });
     }
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("GDK_BACKEND").is_none() {
+            std::env::set_var("GDK_BACKEND", "x11");
+        }
+    }
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             load_todos,
@@ -240,7 +324,7 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        show_window(app);
+                        show_window(app, None);
                     }
                     "hide" => {
                         if let Some(w) = app.get_webview_window("main") {
@@ -256,10 +340,11 @@ fn main() {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
+                        rect,
                         ..
                     } = event
                     {
-                        toggle_window(tray.app_handle());
+                        toggle_window(tray.app_handle(), Some(rect));
                     }
                 })
                 .build(app)?;
@@ -267,7 +352,7 @@ fn main() {
             // Check if start_minimized is false, then show window on launch
             let settings = load_settings(app.handle().clone());
             if !settings.start_minimized {
-                show_window(app.handle());
+                show_window(app.handle(), None);
             }
 
             Ok(())
