@@ -358,8 +358,8 @@ function createTodoItemElement(todo, today) {
 
   contentDiv.appendChild(textSpan);
 
-  // Date badge
-  if (todo.date) {
+  // Date badge (only show if overdue or future date, omit 'Hoje')
+  if (todo.date && todo.date !== today) {
     const dateBadge = document.createElement("span");
     dateBadge.className = "date-badge" + (todo.date < today && !todo.done ? " overdue" : "");
     dateBadge.innerHTML = `${FA_CALENDAR} ${formatDateLabel(todo.date)}`;
