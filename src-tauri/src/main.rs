@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -19,15 +20,46 @@ struct Todo {
     date: String,
     #[serde(default)]
     is_my_day: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    completed_date: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Note {
     id: u64,
+    #[serde(default)]
     title: String,
+    /// HTML do editor rico (versões antigas guardavam texto puro).
+    #[serde(default)]
     content: String,
+    #[serde(default)]
     created_at: String,
+    /// Timestamp em milissegundos da última edição.
+    #[serde(default)]
+    updated_at: u64,
+    #[serde(default)]
+    pinned: bool,
+    /// 0 = pasta padrão "Notas".
+    #[serde(default)]
+    folder_id: u64,
+    /// Preenchido quando a nota está em "Apagadas Recentemente".
+    #[serde(default)]
+    deleted_at: Option<u64>,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Folder {
+    id: u64,
+    name: String,
+}
+
+/// true enquanto a janela está no modo desktop (notas em janela grande).
+#[derive(Default)]
+struct DesktopMode(AtomicBool);
+
+const TRAY_SIZE: (f64, f64) = (370.0, 530.0);
+const DESKTOP_SIZE: (f64, f64) = (1100.0, 720.0);
+const DESKTOP_MIN_SIZE: (f64, f64) = (720.0, 460.0);
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct AppSettings {
@@ -58,6 +90,18 @@ fn notes_file(app: &tauri::AppHandle) -> PathBuf {
         let _ = fs::create_dir_all(&dir);
     }
     dir.push("notes.json");
+    dir
+}
+
+fn folders_file(app: &tauri::AppHandle) -> PathBuf {
+    let mut dir = app
+        .path()
+        .app_data_dir()
+        .expect("failed to resolve app data dir");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    dir.push("folders.json");
     dir
 }
 
@@ -92,16 +136,40 @@ fn save_todos(app: tauri::AppHandle, todos: Vec<Todo>) -> Result<(), String> {
 #[tauri::command]
 fn load_notes(app: tauri::AppHandle) -> Vec<Note> {
     let path = notes_file(&app);
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<Note>>(&s).ok())
-        .unwrap_or_default()
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    match serde_json::from_str::<Vec<Note>>(&raw) {
+        Ok(notes) => notes,
+        Err(e) => {
+            // O próximo save sobrescreveria o arquivo ilegível; guarda uma cópia antes.
+            eprintln!("notes.json inválido ({e}); salvando cópia em notes.json.bak");
+            let _ = fs::copy(&path, path.with_extension("json.bak"));
+            Vec::new()
+        }
+    }
 }
 
 #[tauri::command]
 fn save_notes(app: tauri::AppHandle, notes: Vec<Note>) -> Result<(), String> {
     let path = notes_file(&app);
     let json = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_folders(app: tauri::AppHandle) -> Vec<Folder> {
+    let path = folders_file(&app);
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<Folder>>(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_folders(app: tauri::AppHandle, folders: Vec<Folder>) -> Result<(), String> {
+    let path = folders_file(&app);
+    let json = serde_json::to_string_pretty(&folders).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }
 
@@ -187,6 +255,70 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Alterna entre o modo bandeja (janela compacta presa à tray) e o modo desktop
+/// (janela grande, redimensionável e na barra de tarefas) usado pelas notas.
+#[tauri::command]
+fn set_desktop_mode(
+    app: tauri::AppHandle,
+    mode: tauri::State<DesktopMode>,
+    enabled: bool,
+    visible: bool,
+) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    mode.0.store(enabled, Ordering::SeqCst);
+
+    if enabled {
+        let _ = w.set_always_on_top(false);
+        let _ = w.set_skip_taskbar(false);
+        let _ = w.set_resizable(true);
+        let _ = w.set_maximizable(true);
+        let _ = w.set_min_size(Some(tauri::LogicalSize::new(DESKTOP_MIN_SIZE.0, DESKTOP_MIN_SIZE.1)));
+        let _ = w.set_size(tauri::LogicalSize::new(DESKTOP_SIZE.0, DESKTOP_SIZE.1));
+        let _ = w.set_shadow(true);
+        let _ = w.center();
+    } else {
+        let _ = w.unmaximize();
+        let _ = w.set_min_size(None::<tauri::LogicalSize<f64>>);
+        let _ = w.set_size(tauri::LogicalSize::new(TRAY_SIZE.0, TRAY_SIZE.1));
+        let _ = w.set_resizable(false);
+        let _ = w.set_maximizable(false);
+        let _ = w.set_shadow(false);
+        let _ = w.set_skip_taskbar(true);
+        let _ = w.set_always_on_top(true);
+        position_near_tray(&w, None);
+    }
+
+    if visible {
+        let _ = w.show();
+        let _ = w.set_focus();
+    } else {
+        let _ = w.hide();
+    }
+}
+
+#[tauri::command]
+fn minimize_window(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.minimize();
+    }
+}
+
+#[tauri::command]
+fn toggle_maximize(app: tauri::AppHandle) -> bool {
+    let Some(w) = app.get_webview_window("main") else {
+        return false;
+    };
+    if w.is_maximized().unwrap_or(false) {
+        let _ = w.unmaximize();
+        false
+    } else {
+        let _ = w.maximize();
+        true
+    }
+}
+
 fn position_near_tray(window: &tauri::WebviewWindow, tray_rect: Option<tauri::Rect>) {
     let monitor = window
         .primary_monitor()
@@ -198,7 +330,10 @@ fn position_near_tray(window: &tauri::WebviewWindow, tray_rect: Option<tauri::Re
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     let win_size = match window.outer_size() {
         Ok(s) if s.width > 0 && s.height > 0 => s,
-        _ => tauri::PhysicalSize::new((370.0 * scale_factor) as u32, (530.0 * scale_factor) as u32),
+        _ => tauri::PhysicalSize::new(
+            (TRAY_SIZE.0 * scale_factor) as u32,
+            (TRAY_SIZE.1 * scale_factor) as u32,
+        ),
     };
 
     if let Some(monitor) = monitor {
@@ -273,6 +408,11 @@ fn show_window(app: &tauri::AppHandle, tray_rect: Option<tauri::Rect>) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+
+        // No modo desktop a janela fica onde o usuário a deixou.
+        if app.state::<DesktopMode>().0.load(Ordering::SeqCst) {
+            return;
+        }
         position_near_tray(&window, tray_rect);
 
         let window_clone = window.clone();
@@ -291,15 +431,21 @@ fn main() {
         }
     }
     tauri::Builder::default()
+        .manage(DesktopMode::default())
         .invoke_handler(tauri::generate_handler![
             load_todos,
             save_todos,
             load_notes,
             save_notes,
+            load_folders,
+            save_folders,
             load_settings,
             save_settings,
             hide_window,
-            exit_app
+            exit_app,
+            set_desktop_mode,
+            minimize_window,
+            toggle_maximize
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

@@ -31,3 +31,48 @@ export function formatTime(seconds) {
   const s = seconds % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfDay(ts) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function daysAgo(ts) {
+  return Math.round((startOfDay(Date.now()) - startOfDay(ts)) / DAY_MS);
+}
+
+/** Data curta da lista de notas, como no app Notas: "16:40", "Ontem", "segunda-feira", "01/10/2026". */
+export function formatNoteListDate(ts) {
+  const diff = daysAgo(ts);
+  const d = new Date(ts);
+  if (diff <= 0) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (diff === 1) return "Ontem";
+  if (diff < 7) return d.toLocaleDateString("pt-BR", { weekday: "long" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+/** Data exibida no topo do editor: "1 de outubro de 2026 às 16:40". */
+export function formatNoteFullDate(ts) {
+  const d = new Date(ts);
+  const date = d.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return `${date} às ${time}`;
+}
+
+/** Seção da lista de notas: "Hoje", "Ontem", "7 Dias Anteriores", "30 Dias Anteriores", "outubro de 2026"... */
+export function noteGroupLabel(ts) {
+  const diff = daysAgo(ts);
+  if (diff <= 0) return "Hoje";
+  if (diff === 1) return "Ontem";
+  if (diff < 7) return "7 Dias Anteriores";
+  if (diff < 30) return "30 Dias Anteriores";
+  const d = new Date(ts);
+  if (d.getFullYear() === new Date().getFullYear()) {
+    const month = d.toLocaleDateString("pt-BR", { month: "long" });
+    return month.charAt(0).toUpperCase() + month.slice(1);
+  }
+  return String(d.getFullYear());
+}

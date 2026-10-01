@@ -34,6 +34,23 @@ export async function saveNotesApi(notes) {
   }
 }
 
+export async function loadFoldersApi() {
+  try {
+    return (await invoke("load_folders")) || [];
+  } catch (e) {
+    console.error("load_folders failed", e);
+    return [];
+  }
+}
+
+export async function saveFoldersApi(folders) {
+  try {
+    await invoke("save_folders", { folders });
+  } catch (e) {
+    console.error("save_folders failed", e);
+  }
+}
+
 export async function loadSettingsApi() {
   try {
     return (await invoke("load_settings")) || { autostart: false, start_minimized: false };
@@ -57,4 +74,25 @@ export function hideWindowApi() {
 
 export function exitAppApi() {
   invoke("exit_app");
+}
+
+export async function setDesktopModeApi(enabled, visible = true) {
+  try {
+    await invoke("set_desktop_mode", { enabled, visible });
+  } catch (e) {
+    console.error("set_desktop_mode failed", e);
+  }
+}
+
+export function minimizeWindowApi() {
+  invoke("minimize_window");
+}
+
+export async function toggleMaximizeApi() {
+  try {
+    return !!(await invoke("toggle_maximize"));
+  } catch (e) {
+    console.error("toggle_maximize failed", e);
+    return false;
+  }
 }

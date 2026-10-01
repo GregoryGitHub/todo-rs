@@ -1,11 +1,8 @@
 import { state } from "../state.js";
 import { saveSettingsApi } from "../api.js";
-import { renderNotes } from "./notes.js";
+import { showMainView } from "../navigation.js";
 
 const bottomNav = document.getElementById("bottom-nav");
-const viewTasks = document.getElementById("view-tasks");
-const viewNotes = document.getElementById("view-notes");
-const viewSettings = document.getElementById("view-settings");
 const settingAutostart = document.getElementById("setting-autostart");
 const settingStartMinimized = document.getElementById("setting-start-minimized");
 
@@ -27,17 +24,7 @@ export function initSettings() {
     const targetView = tabBtn.dataset.view;
     if (!targetView || targetView === state.activeMainView) return;
 
-    state.activeMainView = targetView;
-
-    document.querySelectorAll(".bottom-tab").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.view === targetView);
-    });
-
-    viewTasks.hidden = targetView !== "tasks";
-    viewNotes.hidden = targetView !== "notes";
-    viewSettings.hidden = targetView !== "settings";
-
-    if (targetView === "notes") renderNotes();
+    showMainView(targetView);
   });
 }
 
