@@ -1,4 +1,5 @@
 import { el, icon, select, kvTable, authEditor, codeArea, toggle } from "./httpWidgets.js";
+import { createModalHost, btn } from "./modal.js";
 import { scriptsEditor } from "./httpEditor.js";
 import { normalizeEnvironment, uid, clone, formatMs, statusClass } from "../utils/httpModel.js";
 import { parseCurl, looksLikeCurl, importPostman, SNIPPETS } from "../utils/httpConvert.js";
@@ -6,66 +7,12 @@ import { parseCurl, looksLikeCurl, importPostman, SNIPPETS } from "../utils/http
 // Modal dialogs of the HTTP tab: environments, collection settings, import,
 // code snippets, collection runner and confirmations.
 
-const overlayEl = document.getElementById("hx-modal");
-let current = null;
+const modal = createModalHost(document.getElementById("hx-modal"));
 
-export function isModalOpen() {
-  return !overlayEl.hidden;
-}
-
-export function closeModal() {
-  if (!current) return;
-  const { onClose } = current;
-  current = null;
-  overlayEl.hidden = true;
-  overlayEl.innerHTML = "";
-  onClose?.();
-}
-
-function openModal({ title, iconCls, body, footer = [], wide = false, onClose }) {
-  closeModal();
-  const box = el(
-    "div.hx-modal",
-    { role: "dialog", "aria-label": title },
-    el(
-      "div.hx-modal-head",
-      {},
-      el("h3", {}, iconCls ? icon(iconCls) : null, title),
-      el("button.hx-icon-btn", { type: "button", title: "Fechar (Esc)", onclick: closeModal }, icon("fa-solid fa-xmark")),
-    ),
-    el("div.hx-modal-body", {}, body),
-    footer.length ? el("div.hx-modal-foot", {}, footer) : null,
-  );
-  box.classList.toggle("wide", wide);
-  overlayEl.append(box);
-  overlayEl.hidden = false;
-  current = { onClose };
-  overlayEl.onmousedown = (e) => {
-    if (e.target === overlayEl) closeModal();
-  };
-  return box;
-}
-
-const btn = (label, onclick, cls = "hx-btn") => el(`button.${cls}`, { type: "button", onclick }, label);
-
-export function confirmDialog({ title, message, confirmLabel = "Confirmar", danger = false }) {
-  return new Promise((resolve) => {
-    let answered = false;
-    const done = (v) => {
-      answered = true;
-      resolve(v);
-      closeModal();
-    };
-    const ok = btn(confirmLabel, () => done(true), danger ? "hx-btn.danger" : "hx-btn.primary");
-    openModal({
-      title,
-      body: el("p.hx-modal-text", {}, message),
-      footer: [btn("Cancelar", () => done(false)), ok],
-      onClose: () => !answered && resolve(false),
-    });
-    ok.focus();
-  });
-}
+export const isModalOpen = modal.isOpen;
+export const closeModal = modal.close;
+const openModal = modal.open;
+export const confirmDialog = modal.confirm;
 
 // ---------- Environments ----------
 

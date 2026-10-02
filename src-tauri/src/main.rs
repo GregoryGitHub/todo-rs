@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod db;
 mod http;
+mod note_images;
+mod persist;
 
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -24,6 +28,8 @@ struct Todo {
     is_my_day: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     completed_date: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    note: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -69,6 +75,13 @@ struct AppSettings {
     autostart: bool,
     #[serde(default)]
     start_minimized: bool,
+    /// "system" | "light" | "dark"
+    #[serde(default = "default_theme")]
+    theme: String,
+}
+
+fn default_theme() -> String {
+    "system".into()
 }
 
 fn data_file(app: &tauri::AppHandle) -> PathBuf {
@@ -132,7 +145,8 @@ fn load_todos(app: tauri::AppHandle) -> Vec<Todo> {
 fn save_todos(app: tauri::AppHandle, todos: Vec<Todo>) -> Result<(), String> {
     let path = data_file(&app);
     let json = serde_json::to_string_pretty(&todos).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    persist::write(path, json);
+    Ok(())
 }
 
 #[tauri::command]
@@ -156,7 +170,8 @@ fn load_notes(app: tauri::AppHandle) -> Vec<Note> {
 fn save_notes(app: tauri::AppHandle, notes: Vec<Note>) -> Result<(), String> {
     let path = notes_file(&app);
     let json = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    persist::write(path, json);
+    Ok(())
 }
 
 #[tauri::command]
@@ -172,29 +187,52 @@ fn load_folders(app: tauri::AppHandle) -> Vec<Folder> {
 fn save_folders(app: tauri::AppHandle, folders: Vec<Folder>) -> Result<(), String> {
     let path = folders_file(&app);
     let json = serde_json::to_string_pretty(&folders).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    persist::write(path, json);
+    Ok(())
 }
+
+/// Último valor de autostart aplicado no sistema (evita rodar `reg.exe` a cada save).
+static AUTOSTART_APPLIED: Mutex<Option<bool>> = Mutex::new(None);
 
 #[tauri::command]
 fn load_settings(app: tauri::AppHandle) -> AppSettings {
     let path = settings_file(&app);
-    fs::read_to_string(&path)
+    let settings: AppSettings = fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str::<AppSettings>(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    AUTOSTART_APPLIED.lock().unwrap().get_or_insert(settings.autostart);
+    settings
 }
 
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
     let path = settings_file(&app);
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())?;
+    persist::write(path, json);
+
+    // Só mexe no autostart quando ele muda (o tema, por exemplo, também salva settings).
+    {
+        let mut applied = AUTOSTART_APPLIED.lock().unwrap();
+        if *applied == Some(settings.autostart) {
+            return Ok(());
+        }
+        *applied = Some(settings.autostart);
+    }
+    // `reg.exe` / arquivos de autostart fora da thread principal.
+    std::thread::spawn(move || apply_autostart(&app, settings.autostart));
+    Ok(())
+}
+
+fn apply_autostart(app: &tauri::AppHandle, autostart: bool) {
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
 
     #[cfg(target_os = "windows")]
     {
         if let Ok(exe_path) = std::env::current_exe() {
             let exe_str = exe_path.to_string_lossy();
-            if settings.autostart {
+            if autostart {
                 let _ = std::process::Command::new("reg")
                     .args(&[
                         "add",
@@ -228,7 +266,7 @@ fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), Str
             if let Ok(config_dir) = app.path().config_dir() {
                 let autostart_dir = config_dir.join("autostart");
                 let desktop_file = autostart_dir.join("todo-rs.desktop");
-                if settings.autostart {
+                if autostart {
                     let _ = fs::create_dir_all(&autostart_dir);
                     let content = format!(
                         "[Desktop Entry]\nType=Application\nName=TodoRS\nExec=env GDK_BACKEND=x11 \"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
@@ -241,8 +279,6 @@ fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), Str
             }
         }
     }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -434,7 +470,11 @@ fn main() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(DesktopMode::default())
+        .manage(db::DbSessions::default())
+        .manage(db::DbInflight::default())
+        .manage(db::EntraTokens::default())
         .manage(http::HttpInflight::default())
         .manage(http::HttpCookies::default())
         .invoke_handler(tauri::generate_handler![
@@ -457,8 +497,34 @@ fn main() {
             http::load_http_data,
             http::save_http_data,
             http::read_text_file,
-            http::write_file
+            http::write_file,
+            note_images::save_note_image,
+            note_images::import_note_image,
+            note_images::export_note_images,
+            note_images::gc_note_images,
+            db::load_db_data,
+            db::save_db_data,
+            db::db_set_password,
+            db::db_has_password,
+            db::db_forget_secrets,
+            db::db_test_connection,
+            db::db_connect,
+            db::db_disconnect,
+            db::db_introspect,
+            db::db_table_info,
+            db::db_ddl,
+            db::db_execute,
+            db::db_cancel,
+            db::db_tx,
+            db::db_apply
         ])
+        .register_asynchronous_uri_scheme_protocol(note_images::SCHEME, |ctx, request, responder| {
+            // Leitura do arquivo fora da thread da UI.
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(note_images::serve(&app, &request));
+            });
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -514,6 +580,12 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_, event| {
+            // Garante que as gravações em fila terminem antes do processo sair.
+            if let tauri::RunEvent::Exit = event {
+                persist::flush();
+            }
+        });
 }

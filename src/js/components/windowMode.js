@@ -2,7 +2,16 @@ import { state } from "../state.js";
 import { setDesktopModeApi, minimizeWindowApi, toggleMaximizeApi } from "../api.js";
 import { showMainView } from "../navigation.js";
 
-// Tray mode (compact window by the tray) <-> desktop mode (large Notes/HTTP/JSON window).
+// Tray mode (compact window by the tray) <-> desktop mode (large Tasks/Notes/HTTP/JSON/DB window).
+
+/** Views reachable from the desktop toolbar switcher (in order). */
+const DESKTOP_VIEWS = [
+  { view: "tasks", title: "Tarefas", icon: "fa-solid fa-list-check" },
+  { view: "notes", title: "Notas", icon: "fa-solid fa-note-sticky" },
+  { view: "http", title: "HTTP", icon: "fa-solid fa-paper-plane" },
+  { view: "json", title: "Formatter JSON", icon: "fa-solid fa-code" },
+  { view: "db", title: "Banco de dados", icon: "fa-solid fa-database" },
+];
 
 function notifyChange() {
   document.dispatchEvent(new CustomEvent("windowmodechange", { detail: { desktop: state.desktopMode } }));
@@ -16,12 +25,12 @@ function updateMaximizedClass() {
   document.body.classList.toggle("maximized", maximized);
 }
 
-/** Opens the large window on the current view (Notes, HTTP or JSON). */
+/** Opens the large window on the current view (Settings falls back to Tasks). */
 export async function enterDesktopMode() {
   if (state.desktopMode) return;
   state.desktopMode = true;
   document.body.classList.add("desktop-mode");
-  showMainView(["http", "json"].includes(state.activeMainView) ? state.activeMainView : "notes");
+  showMainView(DESKTOP_VIEWS.some((v) => v.view === state.activeMainView) ? state.activeMainView : "tasks");
   notifyChange();
   await setDesktopModeApi(true, true);
 }
@@ -44,10 +53,17 @@ export async function toggleMaximize() {
   updateMaximizedClass();
 }
 
+function renderSwitchers() {
+  document.querySelectorAll(".app-switch").forEach((box) => {
+    box.innerHTML = DESKTOP_VIEWS.map((v) => `<button data-switch-view="${v.view}" title="${v.title}"><i class="${v.icon}"></i></button>`).join("");
+  });
+}
+
 export function initWindowMode() {
+  renderSwitchers();
   window.addEventListener("resize", updateMaximizedClass);
 
-  // Desktop toolbar switcher between Notes, HTTP and JSON.
+  // Desktop toolbar switcher between Tasks, Notes, HTTP and JSON.
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-switch-view]");
     if (btn && btn.dataset.switchView !== state.activeMainView) showMainView(btn.dataset.switchView);

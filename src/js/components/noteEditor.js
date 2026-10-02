@@ -1,4 +1,6 @@
-import { sanitizeHtml, escapeHtml } from "../utils/noteContent.js";
+import { sanitizeHtml, escapeHtml, imageHtml } from "../utils/noteContent.js";
+import { storeImageBlob, storeDataImages } from "../utils/noteImages.js";
+import { openHistory, recordHistory, amendHistory, recordSelection, sealHistory, stepHistory } from "./noteHistory.js";
 
 // Rich-text editor (contenteditable) modeled on the macOS Notes app.
 
@@ -9,9 +11,12 @@ const scroller = document.getElementById("nt-editor-scroll");
 const BLOCK_TAGS = new Set(["H1", "H2", "H3", "P", "DIV", "UL", "OL", "PRE", "BLOCKQUOTE", "TABLE"]);
 const STYLE_TAGS = { title: "h1", heading: "h2", subheading: "h3", body: "p", mono: "pre" };
 const AUTO_LISTS = { "-": "dash", "–": "dash", "*": "bullet", "•": "bullet", "1.": "number", "1)": "number", "[]": "check" };
+const NAV_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 
 let onChange = () => {};
 let onSelectionState = () => {};
+let loadSeq = 0; // bumps on every loadEditor (async pastes check it before inserting)
+let lastTyped = "";
 
 function exec(cmd, value = null) {
   document.execCommand(cmd, false, value);
@@ -42,9 +47,79 @@ function placeCaret(el, atEnd = false) {
   sel.addRange(range);
 }
 
-function changed() {
+/** kind/wordStart group typing into undo steps (see noteHistory.js). */
+function changed(kind = "cmd", wordStart = false) {
   fixBlockNesting();
-  onChange(editor.innerHTML);
+  const html = editor.innerHTML;
+  recordHistory(html, kind, wordStart);
+  onChange(html);
+  updateTableTools();
+  emitSelectionState();
+}
+
+// ---------- Undo / redo ----------
+
+/** Caret position as (element path, text offset): survives an innerHTML round-trip. */
+function serializePoint(node, offset) {
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  if (!el || !editor.contains(el)) return null;
+  const probe = document.createRange();
+  probe.setStart(el, 0);
+  probe.setEnd(node, offset);
+  const path = [];
+  for (let n = el; n !== editor; n = n.parentElement) path.push(Array.prototype.indexOf.call(n.parentElement.children, n));
+  path.reverse();
+  return { path, text: probe.toString().length, child: node === el ? offset : -1 };
+}
+
+function deserializePoint(p) {
+  let el = editor;
+  for (const i of p.path) {
+    const c = el.children[i];
+    if (!c) break;
+    el = c;
+  }
+  if (p.child >= 0 && p.child <= el.childNodes.length) return [el, p.child];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let rem = p.text;
+  let n;
+  while ((n = walker.nextNode())) {
+    if (rem <= n.length) return [n, rem];
+    rem -= n.length;
+  }
+  return [el, el.childNodes.length];
+}
+
+function serializeSelection() {
+  const range = selectionRange();
+  if (!range) return null;
+  const start = serializePoint(range.startContainer, range.startOffset);
+  return start && { start, end: range.collapsed ? null : serializePoint(range.endContainer, range.endOffset) };
+}
+
+function restoreSelection(saved) {
+  editor.focus({ preventScroll: true });
+  if (!saved) {
+    placeCaret(editor.lastElementChild || editor, true);
+    return;
+  }
+  const range = document.createRange();
+  range.setStart(...deserializePoint(saved.start));
+  if (saved.end) range.setEnd(...deserializePoint(saved.end));
+  else range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const target = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+  target?.scrollIntoView({ block: "nearest" });
+}
+
+function applyHistory(delta) {
+  const entry = stepHistory(delta);
+  if (!entry) return;
+  editor.innerHTML = entry.html;
+  restoreSelection(entry.sel);
+  onChange(entry.html);
   updateTableTools();
   emitSelectionState();
 }
@@ -394,6 +469,14 @@ function handleKeydown(e) {
   if (editor.contentEditable !== "true") return;
   const mod = e.ctrlKey || e.metaKey;
 
+  const lower = e.key.toLowerCase();
+  if (mod && !e.altKey && (lower === "z" || lower === "y")) {
+    e.preventDefault();
+    applyHistory(lower === "y" || e.shiftKey ? 1 : -1);
+    return;
+  }
+  if (NAV_KEYS.has(e.key)) sealHistory();
+
   const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
   if (mod && e.shiftKey && SHORTCUTS[key]) {
     e.preventDefault();
@@ -453,9 +536,35 @@ function handleKeydown(e) {
   if (e.key === "Enter" && closestInEditor("ul.checklist > li")) {
     // The browser clones the "checked" class onto the new item.
     setTimeout(() => {
-      closestInEditor("ul.checklist > li")?.classList.remove("checked");
+      const li = closestInEditor("ul.checklist > li.checked");
+      if (!li) return;
+      li.classList.remove("checked");
+      const html = editor.innerHTML;
+      amendHistory(html);
+      onChange(html);
     });
   }
+}
+
+function htmlHasText(html) {
+  if (!html) return false;
+  return !!new DOMParser().parseFromString(html, "text/html").body.textContent.trim();
+}
+
+/** Inserts HTML produced asynchronously at the caret saved when the paste started. */
+function insertLater(range, seq, makeHtml) {
+  makeHtml()
+    .then((html) => {
+      if (!html || seq !== loadSeq || !editor.contains(range.startContainer)) return;
+      editor.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      exec("insertHTML", html);
+      normalizeTopLevel();
+      changed();
+    })
+    .catch((err) => console.error("paste failed", err));
 }
 
 function handlePaste(e) {
@@ -463,8 +572,24 @@ function handlePaste(e) {
   if (editor.contentEditable !== "true") return;
   const html = e.clipboardData.getData("text/html");
   const text = e.clipboardData.getData("text/plain");
+  const images = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+  const range = selectionRange()?.cloneRange();
+
+  // Screenshots / "Copy image": the file wins unless the HTML also carries text.
+  if (images.length && range && !htmlHasText(html)) {
+    insertLater(range, loadSeq, async () => {
+      const stored = await Promise.all(images.map(storeImageBlob));
+      return stored.map((img) => imageHtml(img.src, img.width, img.height)).join("");
+    });
+    return;
+  }
   if (html) {
-    exec("insertHTML", sanitizeHtml(html));
+    const clean = sanitizeHtml(html);
+    if (clean.includes("data:image/") && range) {
+      insertLater(range, loadSeq, () => storeDataImages(clean));
+      return;
+    }
+    exec("insertHTML", clean);
   } else if (text) {
     if (closestInEditor("pre,td,th") || !text.includes("\n")) {
       exec("insertText", text);
@@ -550,9 +675,13 @@ export function runCommand(cmd) {
   changed();
 }
 
-export function loadEditor(html, { readOnly = false, focus = false } = {}) {
+/** key identifies the note so its undo history survives switching notes. */
+export function loadEditor(html, { readOnly = false, focus = false, key = null } = {}) {
+  loadSeq++;
+  lastTyped = "";
   editor.innerHTML = html || "<h1><br></h1>";
   editor.contentEditable = readOnly ? "false" : "true";
+  openHistory(readOnly ? null : key, editor.innerHTML);
   tableTools.hidden = true;
   scroller.scrollTop = 0;
   if (focus && !readOnly) {
@@ -574,10 +703,27 @@ export function initEditor({ onInput, onSelection }) {
   exec("defaultParagraphSeparator", "p");
   exec("styleWithCSS", false);
 
-  editor.addEventListener("input", () => {
+  editor.addEventListener("input", (e) => {
     normalizeTopLevel();
-    changed();
+    const type = e.inputType || "";
+    if (type === "insertText" || type === "insertCompositionText") {
+      // A new word starts a new undo step (the space stays with the previous word).
+      const wordStart = /\S/.test(e.data || "") && /\s$/.test(lastTyped);
+      lastTyped = e.data || "";
+      changed("type", wordStart);
+      return;
+    }
+    lastTyped = "";
+    changed(/^delete(Content|Word|SoftLine|HardLine)/.test(type) ? "delete" : "cmd");
   });
+  // Undo/Redo from the context menu.
+  editor.addEventListener("beforeinput", (e) => {
+    if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
+      e.preventDefault();
+      applyHistory(e.inputType === "historyUndo" ? -1 : 1);
+    }
+  });
+  editor.addEventListener("mousedown", sealHistory);
   editor.addEventListener("keydown", handleKeydown);
   editor.addEventListener("paste", handlePaste);
   editor.addEventListener("mousedown", handleChecklistClick);
@@ -585,6 +731,7 @@ export function initEditor({ onInput, onSelection }) {
 
   document.addEventListener("selectionchange", () => {
     if (!selectionRange()) return;
+    recordSelection(serializeSelection);
     updateTableTools();
     emitSelectionState();
   });

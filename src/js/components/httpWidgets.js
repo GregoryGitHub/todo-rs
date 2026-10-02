@@ -1,32 +1,10 @@
 // Small building blocks shared by the HTTP request editor and its dialogs.
 
 import { kv, AUTH_TYPES, DYNAMIC_VARS, varSegments } from "../utils/httpModel.js";
-import { escapeHtml } from "../utils/noteContent.js";
+import { highlightCode } from "../utils/highlight.js";
+import { el, icon } from "../utils/dom.js";
 
-/** Tiny DOM helper: el("div.cls", { title: "x", onclick }, child, "text"). */
-export function el(tag, attrs = {}, ...children) {
-  const [name, ...classes] = tag.split(".");
-  const node = document.createElement(name || "div");
-  if (classes.length) node.className = classes.join(" ");
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === undefined || v === null) continue;
-    if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
-    else if (v === false) {
-      if (k in node) node[k] = false;
-    }
-    else if (k === "dataset") Object.assign(node.dataset, v);
-    else if (k === "html") node.innerHTML = v;
-    else if (k in node && typeof v !== "string") node[k] = v;
-    else node.setAttribute(k, v === true ? "" : v);
-  }
-  for (const c of children.flat()) {
-    if (c === null || c === undefined || c === false) continue;
-    node.append(c instanceof Node ? c : String(c));
-  }
-  return node;
-}
-
-export const icon = (cls) => el("i", { class: cls });
+export { el, icon };
 
 /** Toggle switch styled like the settings view. */
 export function toggle(checked, onChange, { disabled = false } = {}) {
@@ -488,25 +466,9 @@ export function attachVarAutocomplete(root, popup, getScope) {
 
 // ---------- Response rendering ----------
 
-const JSON_TOKEN = /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],]/g;
-
 /** Syntax-highlighted HTML for an already pretty-printed JSON string. */
 export function highlightJson(text) {
-  let out = "";
-  let last = 0;
-  for (const m of text.matchAll(JSON_TOKEN)) {
-    out += escapeHtml(text.slice(last, m.index));
-    const tok = m[0];
-    let cls = "num";
-    if (m[1]) cls = m[2] ? "key" : "str";
-    else if (m[3]) cls = "bool";
-    else if (tok === "null") cls = "null";
-    else if (/^[{}[\],]$/.test(tok)) cls = "punc";
-    if (m[1] && m[2]) out += `<span class="j-key">${escapeHtml(m[1])}</span>${escapeHtml(m[2])}`;
-    else out += `<span class="j-${cls}">${escapeHtml(tok)}</span>`;
-    last = m.index + tok.length;
-  }
-  return out + escapeHtml(text.slice(last));
+  return highlightCode(text, "json");
 }
 
 /** Indents XML/HTML markup for the "Pretty" view (best effort, no parsing). */

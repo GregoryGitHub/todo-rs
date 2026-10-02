@@ -2,9 +2,16 @@ export const state = {
   todos: [],
   notes: [],
   folders: [], // pastas criadas pelo usuário; a pasta padrão "Notas" (id 0) é implícita
-  settings: { autostart: false, start_minimized: false },
-  currentView: "my_day", // "my_day" | "all"
-  activeMainView: "tasks", // "tasks" | "notes" | "http" | "json" | "settings"
+  settings: { autostart: false, start_minimized: false, theme: "system" },
+  currentView: "my_day", // lista de tarefas: "my_day" | "pending" | "all"
+  tasksUI: {
+    selectedId: null,
+    pane: "list", // modo bandeja: "list" | "editor" (detalhe)
+    query: "",
+    sidebarHidden: false,
+    doneCollapsed: false, // grupo "Concluídas" do Meu Dia
+  },
+  activeMainView: "tasks", // "tasks" | "notes" | "http" | "json" | "db" | "settings"
   desktopMode: false, // true = janela grande (Notas, HTTP e JSON)
   notesUI: {
     scope: "all", // "all" | "trash" | "f:<folderId>"
@@ -15,6 +22,7 @@ export const state = {
     editingFolderId: null,
   },
   http: null, // documento de http.json normalizado por normalizeHttpData
+  db: null, // documento de databases.json normalizado por normalizeDbData (sem segredos)
   httpUI: {
     scope: null, // "all" | "history" | "c:<collectionId>"
     selectedId: null, // id da requisição (ou da entrada do histórico quando scope === "history")

@@ -331,10 +331,9 @@ pub fn load_http_data(app: tauri::AppHandle) -> serde_json::Value {
 pub fn save_http_data(app: tauri::AppHandle, data: serde_json::Value) -> Result<(), String> {
     let path = http_file(&app);
     let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
-    // Escreve num temporário e renomeia, para não corromper o arquivo se o app fechar no meio.
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    // Gravação atômica numa thread própria (ver persist.rs): não trava a interface.
+    crate::persist::write(path, json);
+    Ok(())
 }
 
 /// Lê um arquivo de texto escolhido pelo usuário (importação de coleções).

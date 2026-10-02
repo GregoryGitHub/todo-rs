@@ -9,10 +9,10 @@
   --nt-mono: "SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --nt-bg: #1e1e1f;
   --nt-sidebar: #262628;
-  --nt-surface: rgba(255, 255, 255, 0.055);
-  --nt-hover: rgba(255, 255, 255, 0.07);
-  --nt-sep: rgba(255, 255, 255, 0.08);
-  --nt-sep-strong: rgba(255, 255, 255, 0.14);
+  --nt-surface: rgba(var(--fg-rgb), 0.055);
+  --nt-hover: rgba(var(--fg-rgb), 0.07);
+  --nt-sep: rgba(var(--fg-rgb), 0.08);
+  --nt-sep-strong: rgba(var(--fg-rgb), 0.14);
   --nt-text: #ececec;
   --nt-text-2: #c9c9cb;
   --nt-muted: #8e8e93;
@@ -168,7 +168,7 @@ body.desktop-mode .compact-only {
 .nt-editor-scroll {
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-color: rgba(var(--fg-rgb), 0.18) transparent;
 }
 
 .nt-list::-webkit-scrollbar,
@@ -180,7 +180,7 @@ body.desktop-mode .compact-only {
 .nt-list::-webkit-scrollbar-thumb,
 .nt-sidebar-scroll::-webkit-scrollbar-thumb,
 .nt-editor-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(var(--fg-rgb), 0.16);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
@@ -241,14 +241,14 @@ body.desktop-mode .compact-only {
 }
 
 .nt-folder-chevron {
-  color: rgba(255, 255, 255, 0.25);
+  color: rgba(var(--fg-rgb), 0.25);
   font-size: 10px;
 }
 
 .nt-folder-input {
   flex: 1;
   min-width: 0;
-  background: #121213;
+  background: var(--c-sunken);
   border: 1px solid var(--nt-yellow);
   border-radius: 5px;
   color: var(--nt-text);
@@ -453,7 +453,7 @@ body.desktop-mode .compact-only {
 
 .nt-editor > h1:first-child:has(> br:only-child)::before {
   content: "Título";
-  color: rgba(255, 255, 255, 0.22);
+  color: rgba(var(--fg-rgb), 0.22);
   position: absolute;
   pointer-events: none;
 }
@@ -485,6 +485,18 @@ body.desktop-mode .compact-only {
   min-height: 1.5em;
 }
 
+/* width/height attributes give the aspect ratio before the file loads (no reflow). */
+.nt-editor img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: bottom;
+  border-radius: 6px;
+}
+
+.nt-editor img::selection {
+  background: transparent;
+}
+
 .nt-editor b,
 .nt-editor strong {
   font-weight: 700;
@@ -493,7 +505,7 @@ body.desktop-mode .compact-only {
 .nt-editor pre {
   font-family: var(--nt-mono);
   font-size: 0.9em;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--fg-rgb), 0.05);
   border: 1px solid var(--nt-sep);
   border-radius: 7px;
   padding: 8px 12px;
@@ -502,7 +514,7 @@ body.desktop-mode .compact-only {
 }
 
 .nt-editor blockquote {
-  border-left: 3px solid rgba(255, 255, 255, 0.28);
+  border-left: 3px solid rgba(var(--fg-rgb), 0.28);
   padding: 1px 0 1px 12px;
   margin: 0.3em 0;
   color: var(--nt-text-2);
@@ -570,7 +582,7 @@ body.desktop-mode .compact-only {
   height: 1.08em;
   box-sizing: border-box;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.38);
+  border: 1.5px solid rgba(var(--fg-rgb), 0.38);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -615,7 +627,7 @@ body.desktop-mode .compact-only {
 
 .nt-editor th {
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(var(--fg-rgb), 0.045);
 }
 
 .nt-editor td:focus-within,
@@ -638,7 +650,7 @@ body.desktop-mode .compact-only {
   background: var(--nt-menu-bg);
   border: 1px solid var(--nt-sep-strong);
   border-radius: 9px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, calc(0.45 * var(--shade-k)));
   animation: ntPop 0.12s ease;
 }
 
@@ -700,7 +712,7 @@ body:not(.desktop-mode) .nt-table-tools button {
   backdrop-filter: blur(24px);
   border: 1px solid var(--nt-sep-strong);
   border-radius: 11px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, calc(0.55 * var(--shade-k)));
   animation: ntPop 0.12s ease;
 }
 
@@ -818,7 +830,7 @@ body:not(.desktop-mode) .nt-table-tools button {
   backdrop-filter: blur(24px);
   border: 1px solid var(--nt-sep-strong);
   border-radius: 9px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, calc(0.55 * var(--shade-k)));
   animation: ntPop 0.1s ease;
 }
 
@@ -1151,7 +1163,6 @@ body.desktop-mode.maximized .app {
 
 body.desktop-mode .window-bar,
 body.desktop-mode .bottom-nav,
-body.desktop-mode #view-tasks,
 body.desktop-mode #view-settings {
   display: none !important;
 }
@@ -1248,7 +1259,7 @@ body.desktop-mode #view-notes {
 
 .nt-tb-btn:hover:not(:disabled),
 .nt-tb-btn.active {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(var(--fg-rgb), 0.09);
   color: var(--nt-text) !important;
 }
 
@@ -1257,7 +1268,9 @@ body.desktop-mode #view-notes {
 }
 
 .nt-toolbar .nt-search {
-  width: 190px;
+  /* Shrinks first so the window buttons never get pushed out of a narrow window. */
+  flex: 0 1 190px;
+  min-width: 0;
   height: 28px;
   border-radius: 7px;
   background: rgba(118, 118, 128, 0.2);
@@ -1266,6 +1279,7 @@ body.desktop-mode #view-notes {
 /* Window caption buttons (Windows-style) */
 .win-caption {
   display: flex;
+  flex-shrink: 0;
   align-self: stretch;
   margin-left: 6px;
   margin-right: -12px;
@@ -1293,12 +1307,12 @@ body.desktop-mode #view-notes {
 }
 
 .win-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.08);
   color: var(--nt-text) !important;
 }
 
 .win-btn:active {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--fg-rgb), 0.05);
 }
 
 .win-close:hover {
@@ -1363,11 +1377,11 @@ body.desktop-mode .nt-folder {
 }
 
 body.desktop-mode .nt-folder:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--fg-rgb), 0.04);
 }
 
 body.desktop-mode .nt-folder.active {
-  background: rgba(255, 255, 255, 0.11);
+  background: rgba(var(--fg-rgb), 0.11);
 }
 
 body.desktop-mode .nt-folder-chevron {
@@ -1420,7 +1434,7 @@ body.desktop-mode .nt-item.selected + .nt-item::before {
 }
 
 body.desktop-mode .nt-item.selected {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--fg-rgb), 0.1);
 }
 
 body.desktop-mode .nt-list:focus .nt-item.selected,
@@ -1432,7 +1446,7 @@ body.desktop-mode .nt-list:focus .nt-item.selected .nt-item-preview,
 body.desktop-mode .nt-list:focus .nt-item.selected .nt-item-folder,
 body.desktop-mode .nt-list:focus .nt-item.selected .nt-item-date,
 body.desktop-mode .nt-list:focus .nt-item.selected .nt-item-pin {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(var(--fg-rgb), 0.85);
 }
 
 /* Desktop editor */

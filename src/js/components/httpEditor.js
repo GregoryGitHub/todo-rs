@@ -14,6 +14,7 @@ import {
   headerValue,
   parseSetCookies,
   AUTH_TYPES,
+  DYNAMIC_VARS,
 } from "../utils/httpModel.js";
 import { looksLikeCurl } from "../utils/httpConvert.js";
 import { SCRIPT_SNIPPETS } from "../utils/httpScripts.js";
@@ -22,7 +23,6 @@ import {
   icon,
   toggle,
   select,
-  codeArea,
   insertAtCaret,
   kvTable,
   authEditor,
@@ -32,6 +32,8 @@ import {
   prettyMarkup,
   codeBlock,
 } from "./httpWidgets.js";
+import { codeEditor } from "./codeEditor.js";
+import { highlightCode } from "../utils/highlight.js";
 
 // Request builder (URL bar + tabs) and response viewer of the HTTP tab.
 
@@ -177,6 +179,40 @@ function renderHeaders() {
   ];
 }
 
+const RAW_PLACEHOLDER = {
+  json: '{\n  "chave": "valor"\n}',
+  xml: '<?xml version="1.0"?>\n<raiz>\n  <item>valor</item>\n</raiz>',
+  html: "<html>\n  <body></body>\n</html>",
+  javascript: "// corpo em JavaScript",
+};
+
+const suggestOpen = () => !document.getElementById("hx-suggest")?.hidden;
+
+// O escopo junta ambiente/coleção/globais; montá-lo a cada {{variável}} pintada sai caro.
+let scopeCache = null;
+
+/** {{variável}} conhecida (ambiente/coleção/globais/dinâmica) ou não. */
+function varState(name) {
+  if (!scopeCache) {
+    scopeCache = hooks.getScope();
+    queueMicrotask(() => (scopeCache = null)); // vale só para o redesenho atual
+  }
+  return DYNAMIC_VARS[name] || scopeCache.has(name) ? "known" : "unknown";
+}
+
+/** Editor do corpo da requisição: realce, numeração de linhas e {{variáveis}}. */
+function requestCodeEditor(opts) {
+  return codeEditor({ readOnly, vars: true, varState, skipKey: suggestOpen, maxLines: 40, ...opts });
+}
+
+/** Linha do erro do JSON.parse ("... (line 3 column 5)" ou "... at position 42"). */
+function jsonErrorLine(message, text) {
+  const line = /line (\d+)/i.exec(message);
+  if (line) return Number(line[1]);
+  const pos = /position (\d+)/i.exec(message);
+  return pos ? text.slice(0, Number(pos[1])).split("\n").length : null;
+}
+
 function renderBody() {
   const b = req.body;
   const modes = el("div.hx-radios");
@@ -204,12 +240,11 @@ function renderBody() {
   }
   if (b.mode === "urlencoded") nodes.push(kvTable(b.urlencoded, { readOnly, onChange: () => changed() }));
   if (b.mode === "raw") {
-    const ta = codeArea({
+    const editor = requestCodeEditor({
       value: b.raw,
-      readOnly,
-      vars: true,
-      rows: 12,
-      placeholder: b.lang === "json" ? '{\n  "chave": "valor"\n}' : "",
+      lang: b.lang,
+      minLines: 12,
+      placeholder: RAW_PLACEHOLDER[b.lang] || "",
       onInput: (v) => {
         b.raw = v;
         validate();
@@ -220,19 +255,26 @@ function renderBody() {
     const validate = () => {
       status.textContent = "";
       status.className = "hx-json-status";
+      editor.setErrorLine(null);
       if (b.lang !== "json" || !b.raw.trim()) return;
+      // {{variáveis}} viram 0 só para validar; a linha do erro continua a mesma.
+      const probe = b.raw.replace(/\{\{[^{}]+\}\}/g, "0");
       try {
-        JSON.parse(b.raw.replace(/\{\{[^{}]+\}\}/g, "0"));
+        JSON.parse(probe);
         status.textContent = "JSON válido";
         status.classList.add("ok");
       } catch (e) {
-        status.textContent = e.message.replace(/^JSON\.parse: /, "");
+        const line = jsonErrorLine(e.message, probe);
+        status.textContent = (line ? `Linha ${line}: ` : "") + e.message.replace(/^JSON\.parse: /, "");
         status.classList.add("bad");
+        editor.setErrorLine(line);
       }
     };
     bar.append(
       select(RAW_LANGS, b.lang, (l) => {
         b.lang = l;
+        editor.setLang(l);
+        editor.input.placeholder = RAW_PLACEHOLDER[l] || "";
         validate();
         changed();
       }, { className: "hx-select.small", disabled: readOnly }),
@@ -244,7 +286,8 @@ function renderBody() {
           try {
             if (b.lang === "json") b.raw = JSON.stringify(JSON.parse(b.raw), null, 2);
             else if (b.lang === "xml" || b.lang === "html") b.raw = prettyMarkup(b.raw);
-            ta.value = b.raw;
+            editor.setValue(b.raw);
+            validate();
             changed();
           } catch (e) {
             hooks.toast(`Não foi possível formatar: ${e.message}`);
@@ -252,7 +295,7 @@ function renderBody() {
         },
       }, "Formatar"),
     );
-    nodes.push(ta, status);
+    nodes.push(editor.root, status);
     validate();
   }
   if (b.mode === "binary") {
@@ -282,8 +325,8 @@ function renderBody() {
       el(
         "div.hx-graphql",
         {},
-        section("Query", codeArea({ value: b.graphql.query, readOnly, vars: true, rows: 10, placeholder: "query {\n  usuarios { id nome }\n}", onInput: (v) => ((b.graphql.query = v), changed()) })),
-        section("Variáveis (JSON)", codeArea({ value: b.graphql.variables, readOnly, vars: true, rows: 10, placeholder: '{\n  "id": 1\n}', onInput: (v) => ((b.graphql.variables = v), changed()) })),
+        section("Query", requestCodeEditor({ value: b.graphql.query, lang: "graphql", minLines: 10, placeholder: "query {\n  usuarios { id nome }\n}", onInput: (v) => ((b.graphql.query = v), changed()) }).root),
+        section("Variáveis (JSON)", requestCodeEditor({ value: b.graphql.variables, lang: "json", minLines: 10, placeholder: '{\n  "id": 1\n}', onInput: (v) => ((b.graphql.variables = v), changed()) }).root),
       ),
     );
   }
@@ -302,10 +345,13 @@ export function scriptsEditor(scripts, { readOnly: ro = false, onChange, initial
       b.classList.toggle("active", which === id);
       sub.append(b);
     }
-    const ta = codeArea({
+    const editor = codeEditor({
       value: scripts[which],
+      lang: "javascript",
       readOnly: ro,
-      rows: 14,
+      minLines: 14,
+      maxLines: 40,
+      skipKey: suggestOpen,
       placeholder:
         which === "pre"
           ? "// Executado antes do envio\npm.environment.set(\"agora\", Date.now());"
@@ -324,6 +370,7 @@ export function scriptsEditor(scripts, { readOnly: ro = false, onChange, initial
           type: "button",
           disabled: ro,
           onclick: () => {
+            const ta = editor.input;
             const prefix = ta.value && !ta.value.endsWith("\n") ? "\n" : "";
             ta.setSelectionRange(ta.value.length, ta.value.length);
             insertAtCaret(ta, `${prefix}${s.code}\n`);
@@ -331,7 +378,7 @@ export function scriptsEditor(scripts, { readOnly: ro = false, onChange, initial
         }, s.label),
       ),
     );
-    wrap.append(sub, el("div.hx-script-layout", {}, ta, snippets));
+    wrap.append(sub, el("div.hx-script-layout", {}, editor.root, snippets));
   };
   render();
   return wrap;
@@ -490,8 +537,9 @@ function prettyBody(res, kind) {
   }
   if (kind === "xml" || kind === "html") {
     const text = prettyMarkup(res.body);
-    return { text, lines: text.split("\n").length };
+    return { html: highlightCode(text, "xml"), lines: text.split("\n").length };
   }
+  if (kind === "javascript") return { html: highlightCode(res.body, "javascript"), lines: res.body.split("\n").length };
   return null;
 }
 

@@ -1,13 +1,13 @@
 import { state } from "../state.js";
 import { formatJson } from "../utils/jsonRepair.js";
-import { highlightJson, el } from "./httpWidgets.js";
+import { el } from "../utils/dom.js";
+import { codeEditor } from "./codeEditor.js";
 import { enterDesktopMode, exitDesktopMode, minimizeWindow, toggleMaximize } from "./windowMode.js";
 
 // Formatter JSON: um único campo. "Formatar" diagnostica o texto (escapado, minificado,
 // quebrado...), repara com o pipeline de utils/jsonRepair.js e substitui o conteúdo no lugar.
 
-const HIGHLIGHT_LIMIT = 400_000; // acima disso o realce é desligado (textarea pura)
-const LIVE_LIMIT = 300_000; // diagnóstico ao vivo enquanto digita/cola
+const LIVE_LIMIT = 150_000; // diagnóstico ao vivo enquanto digita/cola (acima: só ao formatar)
 const PERSIST_LIMIT = 1_000_000;
 const STORE_TEXT = "jf.text";
 const STORE_OPTS = "jf.options";
@@ -15,10 +15,6 @@ const STORE_OPTS = "jf.options";
 const INDENTS = { 2: "  ", 4: "    ", tab: "\t" };
 
 const appEl = document.getElementById("json-app");
-const editorEl = document.getElementById("jf-editor");
-const input = document.getElementById("jf-input");
-const hl = document.getElementById("jf-hl");
-const gutter = document.getElementById("jf-gutter");
 const diagEl = document.getElementById("jf-diag");
 const badgeEl = document.getElementById("jf-state");
 const infoEl = document.getElementById("jf-info");
@@ -30,11 +26,32 @@ const opts = { indent: "2", sortKeys: false, expand: false, formatOnPaste: true 
 let cache = { key: null, result: null };
 let lastFormatted = null; // texto produzido pelo último "Formatar"
 let diagOpen = false;
-let renderFrame = 0;
 let liveTimer = null;
 let persistTimer = null;
 let toastTimer = null;
-let lineCount = 0;
+
+const PLACEHOLDER = [
+  "Cole aqui qualquer JSON:",
+  "• minificado ou já formatado",
+  '• escapado ({\\"a\\":1}) ou string dentro de string',
+  "• com aspas simples, comentários, vírgulas sobrando",
+  "• truncado, com acentos quebrados (Ã©), Base64, JWT...",
+  "",
+  "Ctrl+Enter formata.",
+].join("\n");
+
+const editor = codeEditor({
+  lang: "json",
+  fill: true,
+  lineHeight: 20,
+  padY: 12,
+  hideGutterWhenEmpty: true,
+  placeholder: PLACEHOLDER,
+  indent: () => INDENTS[opts.indent],
+  onInput: () => onTextChange(),
+});
+document.getElementById("jf-editor").append(editor.root);
+const input = editor.input;
 
 // ---------- Storage (só conveniência local) ----------
 
@@ -63,6 +80,8 @@ function persistSoon() {
 }
 
 // ---------- Pipeline ----------
+
+const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 600 }) : setTimeout(fn, 0));
 
 const cacheKey = (text) => `${opts.indent}|${opts.sortKeys}|${opts.expand}|${text}`;
 
@@ -222,57 +241,27 @@ function liveDiagnose() {
     renderInfo(null);
     return;
   }
-  liveTimer = setTimeout(() => {
-    const r = analyze(text);
+  // Espera uma pausa na digitação e um momento ocioso para não disputar frames com o editor.
+  liveTimer = setTimeout(() => idle(() => {
     if (input.value !== text) return;
+    const r = analyze(text);
     const label = r.ok && r.state.tone === "ok" && r.pretty === text ? "Válido · formatado" : r.state.label;
     renderDiagnosis({ ok: r.ok, steps: r.steps, error: r.error, state: { ...r.state, label } }, { open: diagOpen });
     renderInfo(r);
-  }, 250);
-}
-
-function renderEditor() {
-  renderFrame = 0;
-  const text = input.value;
-  const plain = text.length > HIGHLIGHT_LIMIT;
-  editorEl.classList.toggle("plain", plain);
-  editorEl.classList.toggle("empty", !text);
-  hl.innerHTML = plain ? "" : highlightJson(text) + "\n";
-
-  let lines = 1;
-  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) lines++;
-  if (lines !== lineCount) {
-    lineCount = lines;
-    let g = "";
-    for (let i = 1; i <= lines; i++) g += i + "\n";
-    gutter.textContent = g;
-    editorEl.style.setProperty("--jf-gutter-ch", String(Math.max(2, String(lines).length)));
-  }
-  syncScroll();
-  updateCursor();
+  }), 250);
 }
 
 function scheduleRender() {
-  if (!renderFrame) renderFrame = requestAnimationFrame(renderEditor);
-}
-
-function syncScroll() {
-  const x = -input.scrollLeft;
-  const y = -input.scrollTop;
-  hl.style.transform = `translate(${x}px, ${y}px)`;
-  gutter.style.transform = `translateY(${y}px)`;
+  editor.refresh();
+  updateCursor();
 }
 
 function updateCursor() {
-  const text = input.value;
-  if (!text || text.length > 5_000_000) {
+  if (!input.value) {
     cursorEl.textContent = "";
     return;
   }
-  const pos = input.selectionStart;
-  const before = text.slice(0, pos);
-  const line = (before.match(/\n/g)?.length || 0) + 1;
-  const col = pos - before.lastIndexOf("\n");
+  const { line, col } = editor.position(input.selectionStart);
   const sel = Math.abs(input.selectionEnd - input.selectionStart);
   cursorEl.textContent = `Ln ${line}, Col ${col}${sel ? ` (${sel} sel.)` : ""}`;
 }
@@ -355,55 +344,6 @@ function closePop() {
   appEl.querySelector('[data-action="options"]')?.classList.remove("active");
 }
 
-// ---------- Editor: teclado ----------
-
-function indentUnit() {
-  return INDENTS[opts.indent];
-}
-
-function handleEditorKeydown(e) {
-  const mod = e.ctrlKey || e.metaKey;
-  if (e.key === "Tab" && !mod) {
-    e.preventDefault();
-    const { selectionStart: s, selectionEnd: end, value } = input;
-    const unit = indentUnit();
-    if (s === end && !e.shiftKey) {
-      document.execCommand("insertText", false, unit);
-      return;
-    }
-    // Indenta/desindenta as linhas selecionadas.
-    const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-    const block = value.slice(lineStart, end);
-    const out = e.shiftKey
-      ? block.replace(/^( {1,4}|\t)/gm, "")
-      : block.replace(/^/gm, unit);
-    input.setSelectionRange(lineStart, end);
-    document.execCommand("insertText", false, out);
-    input.setSelectionRange(lineStart, lineStart + out.length);
-    return;
-  }
-  if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
-    // Mantém a indentação da linha e abre um nível depois de { ou [.
-    const { selectionStart: s, value } = input;
-    if (value.length > HIGHLIGHT_LIMIT) return;
-    e.preventDefault();
-    const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-    const indent = /^[ \t]*/.exec(value.slice(lineStart, s))[0];
-    const prev = value.slice(lineStart, s).trimEnd().slice(-1);
-    const next = value[s];
-    let text = "\n" + indent;
-    if (prev === "{" || prev === "[") {
-      text += indentUnit();
-      if ((prev === "{" && next === "}") || (prev === "[" && next === "]")) {
-        document.execCommand("insertText", false, text + "\n" + indent);
-        input.setSelectionRange(s + text.length, s + text.length);
-        return;
-      }
-    }
-    document.execCommand("insertText", false, text);
-  }
-}
-
 function handleGlobalKeydown(e) {
   if (state.activeMainView !== "json") return;
   const mod = e.ctrlKey || e.metaKey;
@@ -447,7 +387,7 @@ const actions = {
 export function initJsonFormatter() {
   loadOptions();
   const saved = readStore(STORE_TEXT);
-  if (saved) input.value = saved;
+  if (saved) editor.setValue(saved);
 
   appEl.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
@@ -458,9 +398,6 @@ export function initJsonFormatter() {
     if (!popEl.hidden && !e.target.closest("#jf-pop") && !e.target.closest('[data-action="options"]')) closePop();
   });
 
-  input.addEventListener("input", () => onTextChange());
-  input.addEventListener("scroll", syncScroll, { passive: true });
-  input.addEventListener("keydown", handleEditorKeydown);
   input.addEventListener("keyup", updateCursor);
   input.addEventListener("click", updateCursor);
   input.addEventListener("select", updateCursor);
@@ -488,6 +425,6 @@ export function initJsonFormatter() {
     scheduleRender();
   });
 
-  renderEditor();
+  scheduleRender();
   liveDiagnose();
 }

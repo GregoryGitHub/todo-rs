@@ -1233,7 +1233,7 @@ const ACTIONS = {
     renderHttp();
   },
   "show-list": () => {
-    flushSave();
+    if (saveTimer) flushSave();
     ui.pane = "list";
     renderHttp();
   },

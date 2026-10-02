@@ -1,0 +1,159 @@
+/* =========================================================================
+   Editor de código (js/components/codeEditor.js) e tokens de realce (utils/highlight.js).
+   ========================================================================= */
+
+.ce {
+  --ce-font-size: 12px;
+  --ce-pad-x: 12px;
+  position: relative;
+  display: flex;
+  min-height: 0;
+  border: 1px solid var(--hx-input-border, var(--nt-sep-strong));
+  border-radius: 8px;
+  background: rgba(0, 0, 0, calc(0.18 * var(--shade-k)));
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.ce-fill {
+  flex: 1;
+  height: 100%;
+}
+
+.ce:focus-within {
+  border-color: color-mix(in srgb, var(--nt-yellow) 55%, transparent);
+}
+
+.ce-gutter,
+.ce-hl,
+.ce-input {
+  font-family: var(--nt-mono) !important;
+  font-size: var(--ce-font-size);
+  line-height: var(--ce-line);
+  letter-spacing: 0;
+  tab-size: 2;
+  font-variant-ligatures: none;
+}
+
+.ce-gutter {
+  flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(var(--fg-rgb), 0.02);
+  border-right: 1px solid var(--nt-sep);
+}
+
+.ce-gutter pre {
+  margin: 0;
+  min-width: calc(var(--ce-gutter-ch, 2) * 1ch + 18px);
+  padding: var(--ce-pad-y) 8px var(--ce-pad-y) 10px;
+  font: inherit;
+  text-align: right;
+  color: rgba(var(--fg-rgb), 0.26);
+  will-change: transform;
+}
+
+.ce-gutter .ce-err {
+  color: var(--c-danger-text);
+  font-weight: 700;
+}
+
+.ce.no-gutter .ce-gutter {
+  display: none;
+}
+
+.ce-code {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ce-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 100%;
+  margin: 0;
+  padding: var(--ce-pad-y) var(--ce-pad-x);
+  white-space: pre;
+  color: var(--syn-plain);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.ce-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: var(--ce-pad-y) var(--ce-pad-x);
+  border: none !important;
+  outline: none;
+  resize: none;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: var(--nt-text);
+  white-space: pre;
+  overflow: auto;
+  overflow-wrap: normal;
+  user-select: text;
+}
+
+.ce-input::selection {
+  background: color-mix(in srgb, var(--nt-yellow) 30%, transparent);
+}
+
+.ce-input::placeholder {
+  color: rgba(var(--fg-rgb), 0.28);
+}
+
+.ce.plain .ce-hl {
+  display: none;
+}
+
+.ce.plain .ce-input {
+  color: var(--syn-plain) !important;
+}
+
+.ce-input[readonly] {
+  caret-color: transparent;
+}
+
+.ce-input::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.ce-input::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.16) padding-box;
+}
+
+.ce-input::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Variáveis {{x}} dentro do editor: só fundo/contorno (não altera a largura do texto). */
+.ce-hl .hx-var {
+  border-radius: 3px;
+}
+
+/* ---------- Tokens ---------- */
+
+.tok-key { color: var(--syn-key); }
+.tok-str { color: var(--syn-str); }
+.tok-num { color: var(--syn-num); }
+.tok-bool { color: var(--syn-bool); }
+.tok-null { color: var(--syn-null); }
+.tok-punc { color: var(--syn-punc); }
+.tok-comment { color: var(--syn-comment); font-style: italic; }
+.tok-keyword { color: var(--syn-keyword); }
+.tok-fn { color: var(--syn-fn); }
+.tok-builtin { color: var(--syn-builtin); }
+.tok-tag { color: var(--syn-tag); }
+.tok-attr { color: var(--syn-attr); }
+.tok-entity { color: var(--syn-entity); }
+.tok-var { color: var(--syn-var); }
+.tok-type { color: var(--syn-type); }

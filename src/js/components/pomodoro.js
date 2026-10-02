@@ -86,6 +86,8 @@ export function startPomodoroTimer() {
       }
       updatePomodoroUI();
     }
+    // A lista/detalhe de tarefas mostram o tempo restante sem re-renderizar tudo.
+    document.dispatchEvent(new CustomEvent("pomodorotick"));
   }, 1000);
 }
 

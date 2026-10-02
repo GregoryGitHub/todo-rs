@@ -5,6 +5,7 @@ const PANELS = {
   notes: document.getElementById("view-notes"),
   http: document.getElementById("view-http"),
   json: document.getElementById("view-json"),
+  db: document.getElementById("view-db"),
   settings: document.getElementById("view-settings"),
 };
 

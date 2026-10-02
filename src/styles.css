@@ -10,8 +10,8 @@
   --bg: rgba(24, 24, 27, 0.95);
   --panel: rgba(39, 39, 42, 0.65);
   --panel-hover: rgba(63, 63, 70, 0.80);
-  --border: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.25);
+  --border: rgba(var(--fg-rgb), 0.14);
+  --border-strong: rgba(var(--fg-rgb), 0.25);
   --text: #f4f4f5;
   --muted: #a1a1aa;
   --accent: #3b82f6;
@@ -119,7 +119,7 @@ body {
   background: transparent;
   border: 1px solid transparent;
   color: var(--muted);
-  padding: 7px 18px;
+  padding: 7px 14px;
   font-size: 15px;
   border-radius: 999px;
   cursor: pointer;
@@ -134,8 +134,8 @@ body {
 }
 
 .bottom-tab.active {
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  background: rgba(var(--fg-rgb), 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, calc(0.3 * var(--shade-k)));
 }
 
 .bottom-tab.active i {
@@ -155,12 +155,12 @@ body {
   position: absolute;
   top: 30px;
   right: 0;
-  background: #202024;
+  background: var(--c-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 4px;
   min-width: 160px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, calc(0.5 * var(--shade-k)));
   z-index: 200;
   animation: fadeIn 0.12s ease;
 }
@@ -241,15 +241,6 @@ body {
   color: var(--text);
 }
 
-.counter {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  background: var(--panel);
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-}
 
 /* Buttons */
 .btn-secondary {
@@ -275,7 +266,7 @@ body {
 .btn-secondary:hover {
   background: var(--panel-hover);
   border-color: var(--border-strong);
-  color: #fff;
+  color: var(--text);
 }
 
 .btn-primary {
@@ -354,300 +345,6 @@ body {
   color: var(--text);
 }
 
-/* Navigation Tabs */
-.nav-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--panel);
-  padding: 3px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.tab-btn {
-  flex: 1;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.tab-btn i {
-  color: var(--muted);
-}
-
-.tab-btn.active {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text);
-  font-weight: 500;
-  border-color: var(--border);
-}
-
-.tab-btn.active i {
-  color: var(--text);
-}
-
-.tab-btn:hover:not(.active) {
-  color: var(--text);
-}
-
-.tab-btn:hover:not(.active) i {
-  color: var(--text);
-}
-
-/* Form */
-#new-todo {
-  display: flex;
-  gap: 6px;
-}
-
-.input-wrapper {
-  flex: 1;
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.input-icon {
-  position: absolute;
-  left: 10px;
-  color: var(--muted);
-  pointer-events: none;
-  font-size: 12px;
-}
-
-#input {
-  width: 100%;
-  padding: 8px 10px 8px 30px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 12px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
-  user-select: text;
-}
-
-#input:focus {
-  border-color: var(--accent);
-}
-
-.btn-add {
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 0 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  transition: background 0.15s;
-}
-
-.btn-add i {
-  color: white;
-}
-
-.btn-add:hover {
-  background: var(--accent-hover);
-}
-
-/* Todo List */
-.todo-list {
-  list-style: none;
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-right: 2px;
-}
-
-.todo-list::-webkit-scrollbar {
-  width: 4px;
-}
-.todo-list::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 999px;
-}
-
-.item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--panel);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  transition: all 0.15s ease;
-}
-
-.item:hover {
-  border-color: var(--border);
-  background: rgba(63, 63, 70, 0.6);
-}
-
-.check-btn {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s ease;
-}
-
-.check-btn i {
-  color: var(--muted);
-}
-
-.check-btn:hover i {
-  color: var(--accent);
-}
-
-.check-btn.checked i {
-  color: var(--accent);
-}
-
-.item-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.item .text {
-  word-break: break-word;
-  font-size: 12px;
-  user-select: text;
-  line-height: 1.3;
-}
-
-.item.done .text {
-  text-decoration: line-through;
-  color: var(--muted);
-}
-
-.date-badge {
-  font-size: 10px;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.date-badge i {
-  color: var(--muted);
-}
-
-.date-badge.overdue {
-  color: var(--danger);
-  font-weight: 500;
-}
-
-.date-badge.overdue i {
-  color: var(--danger);
-}
-
-.item-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.btn-pomo.active i {
-  color: var(--accent) !important;
-  animation: pulse 1.5s infinite;
-}
-
-.item .btn-edit {
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.item:hover .btn-edit,
-.item .btn-edit:focus-visible {
-  opacity: 1;
-}
-
-.item.editing {
-  border-color: var(--accent);
-  background: rgba(63, 63, 70, 0.6);
-}
-
-.item.editing .btn-edit {
-  display: none;
-}
-
-.edit-input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 12px;
-  line-height: 1.3;
-  padding: 0;
-  user-select: text;
-}
-
-.btn-icon.del:hover i {
-  color: var(--danger);
-}
-
-/* Completed Divider */
-.completed-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0 4px 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  user-select: none;
-  list-style: none;
-}
-
-.completed-divider::before,
-.completed-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-.empty {
-  color: var(--muted);
-  text-align: center;
-  margin-top: 28px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.empty-icon {
-  font-size: 28px;
-  margin-bottom: 6px;
-  color: var(--border);
-}
-
 /* Settings View */
 .settings-list {
   display: flex;
@@ -683,6 +380,39 @@ body {
   font-size: 10px;
   color: var(--muted);
   line-height: 1.3;
+}
+
+/* Seletor de tema (Sistema / Claro / Escuro) */
+.theme-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.theme-seg button {
+  width: 32px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theme-seg button:hover {
+  color: var(--text);
+}
+
+.theme-seg button.active {
+  background: var(--panel-hover);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, calc(0.3 * var(--shade-k)));
 }
 
 /* iOS-Style Toggle Switch */
@@ -733,7 +463,7 @@ input:checked + .slider:before {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, calc(0.6 * var(--shade-k)));
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -748,12 +478,12 @@ input:checked + .slider:before {
 }
 
 .modal-content {
-  background: #1f1f23;
+  background: var(--c-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   width: 100%;
   max-width: 290px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, calc(0.5 * var(--shade-k)));
   overflow: hidden;
   animation: popIn 0.15s ease;
 }

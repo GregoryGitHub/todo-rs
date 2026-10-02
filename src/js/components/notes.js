@@ -1,7 +1,28 @@
 import { state } from "../state.js";
-import { saveNotesApi, saveFoldersApi } from "../api.js";
+import {
+  saveNotesApi,
+  saveFoldersApi,
+  hasTauri,
+  openFileDialogApi,
+  saveFileDialogApi,
+  readTextFileApi,
+  writeFileApi,
+  exportNoteImagesApi,
+  gcNoteImagesApi,
+} from "../api.js";
 import { formatNoteListDate, formatNoteFullDate, noteGroupLabel } from "../utils/date.js";
-import { noteTitle, notePreview, noteIsEmpty, noteMatches } from "../utils/noteContent.js";
+import {
+  noteTitle,
+  notePreview,
+  noteIsEmpty,
+  noteMatches,
+  sanitizeHtml,
+  escapeHtml,
+  localImageName,
+  noteImageNames,
+} from "../utils/noteContent.js";
+import { htmlToMarkdown, markdownToHtml } from "../utils/markdown.js";
+import { resolveMarkdownImages } from "../utils/noteImages.js";
 import { initEditor, loadEditor, runCommand, getSelectionState, focusEditorEnd } from "./noteEditor.js";
 import { enterDesktopMode, exitDesktopMode, minimizeWindow, toggleMaximize } from "./windowMode.js";
 
@@ -26,9 +47,13 @@ const editorEmptyEl = document.getElementById("nt-editor-empty");
 const trashBannerEl = document.getElementById("nt-trash-banner");
 const popoverEl = document.getElementById("nt-format-popover");
 const menuEl = document.getElementById("nt-menu");
+const toastEl = document.getElementById("nt-toast");
 
 let saveTimer = null;
 let listRenderQueued = false;
+let toastTimer = null;
+
+const MD_FILTERS = [{ name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "txt"] }];
 
 // ---------- Data helpers ----------
 
@@ -128,7 +153,8 @@ function setScope(scope) {
   else renderNotes();
 }
 
-function createNote() {
+/** Adds a note to the current folder and returns its id. */
+function addNote(content) {
   if (ui.scope === "trash") ui.scope = "all";
   ui.query = "";
   searchInputs.forEach((i) => (i.value = ""));
@@ -139,14 +165,114 @@ function createNote() {
   state.notes.unshift({
     id,
     title: "",
-    content: "<h1><br></h1>",
+    content,
     created_at: new Date(now).toISOString(),
     updated_at: now,
     pinned: false,
     folder_id: scopeFolderId() ?? 0,
     deleted_at: null,
   });
-  selectNote(id, { focus: true });
+  return id;
+}
+
+function createNote() {
+  selectNote(addNote("<h1><br></h1>"), { focus: true });
+}
+
+// ---------- Markdown import / export ----------
+
+function toast(message) {
+  clearTimeout(toastTimer);
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  toastTimer = setTimeout(() => (toastEl.hidden = true), 3000);
+}
+
+function splitPath(path) {
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const file = path.slice(i + 1);
+  return { dir: path.slice(0, i), sep: path[i] || "/", stem: file.replace(/\.[^.]+$/, "") || file };
+}
+
+function safeFileName(name) {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim().slice(0, 80) || "Nota";
+}
+
+async function importMarkdown() {
+  if (!hasTauri) return toast("Disponível apenas no aplicativo desktop.");
+  const paths = await openFileDialogApi({ title: "Importar Markdown", filters: MD_FILTERS, multiple: true });
+  if (!paths.length) return;
+  let lastId = null;
+  let failed = 0;
+  for (const path of paths) {
+    try {
+      const { dir, stem } = splitPath(path);
+      const md = await readTextFileApi(path);
+      // Relative image paths only make sense next to the file, so resolve them before sanitizing.
+      let html = sanitizeHtml(await resolveMarkdownImages(markdownToHtml(md), dir));
+      if (!/^<h[1-3][\s>]/i.test(html)) html = `<h1>${escapeHtml(stem)}</h1>${html}`;
+      lastId = addNote(html);
+    } catch (e) {
+      console.error("markdown import failed", path, e);
+      failed++;
+    }
+  }
+  if (lastId !== null) {
+    flushNotesSave();
+    selectNote(lastId);
+  }
+  const ok = paths.length - failed;
+  toast(failed ? `${ok} importada(s), ${failed} com erro.` : ok === 1 ? "Nota importada." : `${ok} notas importadas.`);
+}
+
+async function exportMarkdown(id) {
+  const note = findNote(id);
+  if (!note) return;
+  if (!hasTauri) return toast("Disponível apenas no aplicativo desktop.");
+  const path = await saveFileDialogApi({
+    title: "Exportar como Markdown",
+    defaultPath: `${safeFileName(noteTitle(note))}.md`,
+    filters: MD_FILTERS.slice(0, 1),
+  });
+  if (!path) return;
+
+  // Stored images are copied to "<name>.assets/" next to the .md file.
+  const { dir, sep, stem } = splitPath(path);
+  const assets = `${stem}.assets`;
+  const names = new Set();
+  const md = htmlToMarkdown(note.content, {
+    imageSrc: (src) => {
+      const name = localImageName(src);
+      if (!name) return src;
+      names.add(name);
+      return `${assets}/${name}`;
+    },
+  });
+  try {
+    if (names.size) await exportNoteImagesApi([...names], `${dir}${sep}${assets}`);
+    await writeFileApi(path, { text: md });
+    toast(names.size ? `Exportada com ${names.size} imagem(ns).` : "Nota exportada.");
+  } catch (e) {
+    console.error("markdown export failed", e);
+    toast(`Falha ao exportar: ${e}`);
+  }
+}
+
+/** Removes image files no note references anymore (trash included). Call after loading. */
+export function collectNoteImageGarbage() {
+  if (!hasTauri || !state.notes.length) return;
+  const keep = new Set();
+  for (const n of state.notes) for (const name of noteImageNames(n.content)) keep.add(name);
+  gcNoteImagesApi([...keep]);
+}
+
+function showMoreMenu(btn) {
+  const r = btn.getBoundingClientRect();
+  const note = selectedNote();
+  showMenu(r.left, r.bottom + 4, [
+    { label: "Importar Markdown…", icon: "fa-solid fa-file-import", run: importMarkdown },
+    { label: "Exportar como Markdown…", icon: "fa-solid fa-file-export", disabled: !note, run: () => exportMarkdown(note.id) },
+  ]);
 }
 
 function deleteNote(id) {
@@ -494,7 +620,7 @@ function loadSelectedIntoEditor({ focus = false } = {}) {
   trashBannerEl.hidden = !note?.deleted_at;
   if (!note) return;
   editorDateEl.textContent = formatNoteFullDate(note.updated_at);
-  loadEditor(note.content, { readOnly: !!note.deleted_at, focus });
+  loadEditor(note.content, { readOnly: !!note.deleted_at, focus, key: note.id });
 }
 
 function handleEditorInput(html) {
@@ -589,6 +715,7 @@ function showNoteMenu(x, y, note) {
   if (note.deleted_at) {
     showMenu(x, y, [
       { label: "Recuperar", icon: "fa-solid fa-rotate-left", run: () => restoreNote(note.id) },
+      { label: "Exportar como Markdown…", icon: "fa-solid fa-file-export", run: () => exportMarkdown(note.id) },
       "sep",
       { label: "Apagar Permanentemente", icon: "fa-regular fa-trash-can", danger: true, run: () => deleteNote(note.id) },
     ]);
@@ -610,12 +737,24 @@ function showNoteMenu(x, y, note) {
       run: () => moveNote(note.id, f.id),
     })),
     "sep",
+    { label: "Exportar como Markdown…", icon: "fa-solid fa-file-export", run: () => exportMarkdown(note.id) },
+    "sep",
     { label: "Apagar", icon: "fa-regular fa-trash-can", danger: true, run: () => deleteNote(note.id) },
   ]);
 }
 
 function showFolderMenu(x, y, entry) {
-  const items = [{ label: "Nova Pasta", icon: "fa-solid fa-folder-plus", run: createFolder }];
+  const items = [
+    { label: "Nova Pasta", icon: "fa-solid fa-folder-plus", run: createFolder },
+    {
+      label: "Importar Markdown…",
+      icon: "fa-solid fa-file-import",
+      run: () => {
+        if (entry.scope !== "trash") ui.scope = entry.scope;
+        importMarkdown();
+      },
+    },
+  ];
   if (entry.editable) {
     items.push(
       {
@@ -674,6 +813,7 @@ const ACTIONS = {
   "close-desktop": () => exitDesktopMode({ visible: false }),
   minimize: minimizeWindow,
   maximize: toggleMaximize,
+  more: showMoreMenu,
 };
 
 function moveSelection(delta) {
@@ -742,7 +882,7 @@ export function initNotes() {
       return;
     }
     const actionBtn = e.target.closest("[data-action]");
-    if (actionBtn && !actionBtn.disabled) ACTIONS[actionBtn.dataset.action]?.();
+    if (actionBtn && !actionBtn.disabled) ACTIONS[actionBtn.dataset.action]?.(actionBtn);
   });
 
   for (const input of searchInputs) {

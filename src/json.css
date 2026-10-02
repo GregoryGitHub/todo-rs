@@ -8,6 +8,7 @@
   --nt-yellow-soft: rgba(167, 139, 250, 0.14);
   --jf-accent: #a78bfa;
   --jf-accent-hover: #b9a4fc;
+  --jf-on-accent: #1d1433;
   --jf-ok: #4ade80;
   --jf-info: #60a5fa;
   --jf-warn: #fbbf24;
@@ -86,7 +87,7 @@ body.desktop-mode .jf-body {
   padding: 0 14px;
   border: none;
   background: var(--jf-accent);
-  color: #1d1433 !important;
+  color: var(--jf-on-accent) !important;
   font-weight: 600;
   box-shadow: 0 4px 14px rgba(167, 139, 250, 0.25);
 }
@@ -104,7 +105,7 @@ body.desktop-mode .jf-body {
 .jf-btn {
   padding: 0 11px;
   border: 1px solid var(--nt-sep-strong);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--fg-rgb), 0.05);
   color: var(--nt-text) !important;
 }
 
@@ -114,7 +115,7 @@ body.desktop-mode .jf-body {
 }
 
 .jf-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(var(--fg-rgb), 0.09);
 }
 
 .jf-icon {
@@ -127,7 +128,7 @@ body.desktop-mode .jf-body {
 
 .jf-icon:hover,
 .jf-icon.active {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(var(--fg-rgb), 0.09);
   color: var(--nt-text) !important;
 }
 
@@ -135,127 +136,31 @@ body:not(.desktop-mode) .jf-btn {
   padding: 0 9px;
 }
 
-/* ---------- Editor ---------- */
+/* ---------- Editor (codeEditor) ---------- */
 
 .jf-editor {
-  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
-  border: 1px solid var(--nt-sep-strong);
+}
+
+.jf-editor .ce {
+  --ce-font-size: 12.5px;
+  --ce-pad-x: 14px;
+  border-color: var(--nt-sep-strong);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.22);
-  overflow: hidden;
+  background: rgba(0, 0, 0, calc(0.22 * var(--shade-k)));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.jf-editor:focus-within {
-  border-color: rgba(167, 139, 250, 0.5);
-  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.08);
+.jf-editor .ce:focus-within {
+  border-color: color-mix(in srgb, var(--jf-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--jf-accent) 10%, transparent);
 }
 
-.jf-gutter,
-.jf-hl,
-.jf-input {
-  font-family: var(--nt-mono) !important;
-  font-size: var(--jf-font-size);
-  line-height: var(--jf-line);
-  letter-spacing: 0;
-  tab-size: 4;
-  font-variant-ligatures: none;
-}
-
-.jf-gutter {
-  flex-shrink: 0;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.02);
-  border-right: 1px solid var(--nt-sep);
-}
-
-.jf-gutter pre {
-  margin: 0;
-  min-width: calc(var(--jf-gutter-ch, 2) * 1ch + 20px);
-  padding: var(--jf-pad-y) 9px var(--jf-pad-y) 11px;
-  font: inherit;
-  text-align: right;
-  color: rgba(255, 255, 255, 0.24);
-  will-change: transform;
-}
-
-.jf-editor.empty .jf-gutter {
-  display: none;
-}
-
-.jf-code {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.jf-hl {
-  position: absolute;
-  top: 0;
-  left: 0;
-  min-width: 100%;
-  margin: 0;
-  padding: var(--jf-pad-y) var(--jf-pad-x);
-  white-space: pre;
-  color: var(--nt-text-2);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.jf-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: var(--jf-pad-y) var(--jf-pad-x);
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--nt-text);
-  white-space: pre;
-  overflow: auto;
-  overflow-wrap: normal;
-  user-select: text;
-}
-
-.jf-input::selection {
-  background: rgba(167, 139, 250, 0.32);
-}
-
-.jf-input::placeholder {
-  color: rgba(255, 255, 255, 0.28);
+.jf-editor .ce-input::placeholder {
   font-family: var(--nt-font);
   font-size: 12.5px;
-}
-
-.jf-editor.plain .jf-hl {
-  display: none;
-}
-
-.jf-editor.plain .jf-input {
-  color: var(--nt-text-2);
-}
-
-.jf-input::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.jf-input::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16) padding-box;
-}
-
-.jf-input::-webkit-scrollbar-corner {
-  background: transparent;
 }
 
 /* ---------- Diagnóstico ---------- */
@@ -270,7 +175,7 @@ body:not(.desktop-mode) .jf-btn {
   padding: 5px;
   border: 1px solid var(--nt-sep);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(var(--fg-rgb), 0.035);
   animation: ntPop 0.15s ease;
 }
 
@@ -290,7 +195,7 @@ body.desktop-mode .jf-diag {
 }
 
 .jf-step:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--fg-rgb), 0.04);
 }
 
 .jf-step i {
@@ -399,7 +304,7 @@ body.desktop-mode .jf-diag {
   border: 1px solid var(--nt-sep-strong);
   border-radius: 12px;
   background: var(--nt-menu-bg);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, calc(0.5 * var(--shade-k)));
   backdrop-filter: blur(18px);
   animation: ntPop 0.12s ease;
 }
@@ -418,7 +323,7 @@ body.desktop-mode .jf-diag {
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--fg-rgb), 0.06);
 }
 
 .jf-seg button {
@@ -433,7 +338,7 @@ body.desktop-mode .jf-diag {
 }
 
 .jf-seg button.active {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--fg-rgb), 0.14);
   color: var(--nt-text) !important;
   font-weight: 600;
 }

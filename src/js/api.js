@@ -130,9 +130,10 @@ export function clearHttpCookiesApi() {
   return invoke("clear_http_cookies").catch(() => {});
 }
 
-export async function openFileDialogApi({ filters, title } = {}) {
+export async function openFileDialogApi({ filters, title, multiple = false } = {}) {
   try {
-    const path = await invoke("plugin:dialog|open", { options: { multiple: false, directory: false, filters, title } });
+    const path = await invoke("plugin:dialog|open", { options: { multiple, directory: false, filters, title } });
+    if (multiple) return Array.isArray(path) ? path : path ? [path] : [];
     return Array.isArray(path) ? path[0] ?? null : path ?? null;
   } catch (e) {
     console.error("open dialog failed", e);
@@ -156,3 +157,76 @@ export function readTextFileApi(path) {
 export function writeFileApi(path, { text = null, base64 = null } = {}) {
   return invoke("write_file", { path, text, base64 });
 }
+
+// ---------- Imagens das notas ----------
+
+export const hasTauri = !!window.__TAURI__?.core;
+
+/** Stores image bytes (sent raw, no base64) and resolves to the file name. */
+export function saveNoteImageApi(bytes, ext = "") {
+  return invoke("save_note_image", bytes, { headers: { "x-ext": ext } });
+}
+
+export function importNoteImageApi(path) {
+  return invoke("import_note_image", { path });
+}
+
+export function exportNoteImagesApi(names, dir) {
+  return invoke("export_note_images", { names, dir });
+}
+
+export function gcNoteImagesApi(keep) {
+  return invoke("gc_note_images", { keep }).catch((e) => console.error("gc_note_images failed", e));
+}
+
+// ---------- Banco de dados (aba estilo DataGrip) ----------
+
+export async function loadDbDataApi() {
+  try {
+    return await invoke("load_db_data");
+  } catch (e) {
+    console.error("load_db_data failed", e);
+    return null;
+  }
+}
+
+export async function saveDbDataApi(data) {
+  try {
+    await invoke("save_db_data", { data });
+  } catch (e) {
+    console.error("save_db_data failed", e);
+  }
+}
+
+function requireTauri() {
+  if (!window.__TAURI__?.core) throw "Disponível apenas no aplicativo desktop.";
+}
+
+/** Os comandos de banco rejeitam com uma mensagem legível (string). */
+export const dbApi = {
+  setPassword: (connId, password) => invoke("db_set_password", { connId, password }),
+  hasPassword: (connId) => invoke("db_has_password", { connId }).catch(() => false),
+  forgetSecrets: (connId) => invoke("db_forget_secrets", { connId }).catch(() => {}),
+  test(conn, password = null) {
+    requireTauri();
+    return invoke("db_test_connection", { conn, password });
+  },
+  connect(target) {
+    requireTauri();
+    return invoke("db_connect", { target });
+  },
+  disconnect: (prefix) => invoke("db_disconnect", { prefix }).catch(() => {}),
+  introspect: (target, path) => invoke("db_introspect", { target, path }),
+  tableInfo: (target, schema, name) => invoke("db_table_info", { target, schema, name }),
+  ddl: (target, path) => invoke("db_ddl", { target, path }),
+  /** `onEvent` recebe ResultStart/Rows/ResultEnd enquanto a consulta roda; resolve com o resumo. */
+  execute(target, queryId, sql, { maxRows = null, onEvent }) {
+    requireTauri();
+    const channel = new window.__TAURI__.core.Channel();
+    channel.onmessage = onEvent;
+    return invoke("db_execute", { target, queryId, sql, maxRows, onEvent: channel });
+  },
+  cancel: (queryId) => invoke("db_cancel", { queryId }).catch(() => {}),
+  tx: (target, action) => invoke("db_tx", { target, action }),
+  apply: (target, statements, atomic = true) => invoke("db_apply", { target, statements, atomic }),
+};

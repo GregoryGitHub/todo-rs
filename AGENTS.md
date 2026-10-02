@@ -7,7 +7,7 @@ Este documento fornece um mapa conciso e abrangente da arquitetura, estrutura de
 ## 1. Visão Geral do Projeto
 
 - **Nome**: todo-rs
-- **Tipo**: Aplicativo de produtividade (Tarefas, Notas Rápidas, Timer Pomodoro, cliente HTTP estilo Postman e Formatter JSON) para Desktop.
+- **Tipo**: Aplicativo de produtividade (Tarefas, Notas Rápidas, Timer Pomodoro, cliente HTTP estilo Postman, Formatter JSON e cliente de banco de dados estilo DataGrip) para Desktop.
 - **Tecnologias**:
   - **Frontend**: HTML5, CSS3 Vanilla (com variáveis CSS e design moderno), JavaScript nativo (ES Modules).
   - **Backend / Desktop Frame**: Rust + Tauri v2.
@@ -29,12 +29,17 @@ todo-rs/
 ├── _gen_icons.ps1             # Gera todos os ícones do bundle com `cargo tauri icon` a partir do SVG
 ├── clean.sh                   # Script para limpar cache de build no Linux (cargo clean)
 ├── clean.ps1                  # Script para limpar cache de build no Windows
+├── tests/db-utils.test.mjs    # Testes dos utilitários da aba Banco (`node tests/db-utils.test.mjs`)
 ├── src/                       # Frontend da Aplicação
 │   ├── index.html             # Estrutura HTML principal (views, modais e barra de navegação)
-│   ├── styles.css             # Estilos CSS globais, temas, modais e layout responsivo
+│   ├── theme.css              # Tokens de tema claro/escuro (html[data-theme]) e paleta de realce --syn-*
+│   ├── styles.css             # Estilos CSS globais, modais, configurações e layout da bandeja
 │   ├── notes.css              # Estilos das Notas (modo bandeja compacto + modo desktop estilo macOS)
 │   ├── http.css               # Estilos da aba HTTP (reaproveita o layout .notes-app/.nt-* das Notas)
-│   ├── json.css               # Estilos do Formatter JSON (campo único: textarea + camada de realce)
+│   ├── json.css               # Estilos do Formatter JSON
+│   ├── tasks.css              # Estilos das Tarefas (bandeja em pilha + desktop em 3 colunas)
+│   ├── code.css               # Editor de código compartilhado (.ce) e tokens de realce (.tok-*)
+│   ├── db.css                 # Aba Banco: Explorer, abas, DataGrid, console, log e diálogos
 │   ├── main.js                # Entry point JS: inicialização e eventos globais
 │   └── js/                    # Módulos JS organizados por responsabilidade
 │       ├── api.js             # Bridge IPC Tauri (`load_todos`, `save_todos`, etc.)
@@ -42,21 +47,45 @@ todo-rs/
 │       ├── navigation.js      # Troca de view principal (dispara o evento "mainviewchange")
 │       ├── utils/
 │       │   ├── date.js        # Utilitários de data e formatação de tempo
+│       │   ├── dom.js         # Helper `el()` para montar DOM (compartilhado pelos componentes)
+│       │   ├── highlight.js   # Realce de sintaxe por regex: JSON, JavaScript, XML/HTML, GraphQL, SQL, {{variáveis}}
 │       │   ├── audio.js       # Gerador de som WebAudio para o alarme do Pomodoro
-│       │   ├── noteContent.js # HTML das notas: migração, título/preview, sanitização de colagem
+│       │   ├── noteContent.js # HTML das notas: migração, título/preview, sanitização, URLs de imagem
+│       │   ├── noteImages.js  # Imagens das notas: salvar colagens/data: URLs, importar arquivos do Markdown
+│       │   ├── markdown.js    # Conversão HTML das notas <-> Markdown (import/export)
 │       │   ├── httpModel.js   # HTTP: modelo/migração, variáveis {{}}, URL<->params, montagem da requisição
 │       │   ├── httpConvert.js # HTTP: import cURL, snippets de código, import/export Postman v2.1
 │       │   ├── httpScripts.js # HTTP: sandbox dos scripts pre-request/tests (API `pm` + `pm.expect`)
-│       │   └── jsonRepair.js  # JSON: diagnóstico heurístico + pipeline de reparo, parser tolerante e serializador
+│       │   ├── jsonRepair.js  # JSON: diagnóstico heurístico + pipeline de reparo, parser tolerante e serializador
+│       │   ├── dbModel.js     # Banco: databases.json (conexões sem segredo, consoles, abas), connection string ADO/JDBC
+│       │   ├── sqlDialect.js  # Banco: dialeto SQL (quoting, literais, paginação OFFSET/FETCH); marcadores DEFAULT/GENERATED
+│       │   ├── sqlSplit.js    # Banco: divide scripts em lotes (GO) e comandos; comando sob o cursor
+│       │   ├── sqlGen.js      # Banco: UPDATE/INSERT/DELETE das alterações pendentes do grid (pela PK original)
+│       │   ├── gridModel.js   # DataGrid: linhas, visão filtrada/ordenada, pendências, agregados (sem DOM)
+│       │   └── gridExport.js  # DataGrid: TSV/CSV/JSON/Markdown/SQL INSERT e leitura de TSV colado (Excel)
 │       └── components/
-│           ├── tasks.js       # Lógica e renderização das abas "Meu Dia" e "Histórico"
+│           ├── tasks.js       # Tarefas: listas Meu Dia/Pendentes/Histórico, detalhe, atalhos
+│           ├── codeEditor.js  # Editor de código (textarea + realce + numeração de linhas + recuo inteligente)
+│           ├── theme.js       # Tema claro/escuro/sistema (botões [data-theme-toggle] e seletor nas Configurações)
 │           ├── notes.js       # Notas: pastas, lista agrupada, busca, lixeira, menus
-│           ├── noteEditor.js  # Editor rico (contenteditable): estilos, listas, checklist, tabelas
+│           ├── noteEditor.js  # Editor rico (contenteditable): estilos, listas, checklist, tabelas, colar imagens
+│           ├── noteHistory.js # Desfazer/refazer das notas (snapshots do HTML, agrupados por palavra)
 │           ├── http.js        # HTTP: coleções/pastas, lista, histórico, envio, menus, atalhos
 │           ├── httpEditor.js  # HTTP: barra de URL, abas da requisição e visualizador da resposta
 │           ├── httpDialogs.js # HTTP: modais (ambientes, coleção, importar, código, runner)
 │           ├── httpWidgets.js # HTTP: tabela chave/valor, auth, autocomplete de variáveis, realce JSON
 │           ├── jsonFormatter.js # Formatter JSON: editor, formatar no lugar, copiar formatado/minificado, opções
+│           ├── modal.js       # Modal compartilhado (HTTP e Banco): createModalHost(overlay)
+│           ├── db.js          # Banco: orquestrador (conexões, abas, log de consultas, menus, atalhos, layout)
+│           ├── dbExplorer.js  # Banco: Database Explorer (árvore lazy conexão → banco → schema → objetos → colunas/chaves)
+│           ├── dbTableTab.js  # Banco: aba de tabela (paginação, WHERE/ORDER BY, edição, Submit/Revert, transação)
+│           ├── dbConsole.js   # Banco: console SQL (Ctrl+Enter, result sets, Saída, cancelar) e aba de DDL
+│           ├── dbShared.js    # Banco: rodapé com agregados, "copiar como", exportação, controles Tx
+│           ├── dbDialogs.js   # Banco: diálogo de conexão, revisão do SQL antes de gravar
+│           ├── dataGrid.js    # DataGrid genérico virtualizado (2 eixos): seleção estilo Excel, edição, colar, busca
+│           ├── dataGridFilter.js # DataGrid: popup de filtro local (valores distintos + contagem)
+│           ├── dataGridEditor.js # DataGrid: editor sobre a célula e editor de valor (texto longo/JSON/XML)
+│           ├── sqlComplete.js # Autocomplete SQL (tabelas, colunas por alias, palavras-chave) e de colunas em inputs
 │           ├── windowMode.js  # Alterna modo bandeja <-> modo desktop (evento "windowmodechange")
 │           ├── pomodoro.js    # Lógica de contagem e modal do Timer Pomodoro
 │           ├── settings.js    # Gerenciamento de configurações (autostart, minimizado)
@@ -67,7 +96,17 @@ todo-rs/
     ├── tauri.conf.json        # Configuração do aplicativo (tamanho, frameless, tray)
     └── src/
         ├── main.rs            # Comandos Rust IPC e lógica de persistência JSON no disco
-        └── http.rs            # Cliente HTTP (reqwest), cancelamento, cookies, http.json e arquivos
+        ├── http.rs            # Cliente HTTP (reqwest), cancelamento, cookies, http.json e arquivos
+        ├── note_images.rs     # Imagens das notas em note-images/ + protocolo noteimg://
+        ├── persist.rs         # Fila de gravação em thread própria (atômica, sem travar a UI)
+        └── db/                # Cliente de banco de dados (aba Banco)
+            ├── mod.rs         # Comandos Tauri, sessões (session_id) e cancelamento
+            ├── driver.rs      # Traits Driver/Session + tipos neutros (ColumnMeta, ExecEvent, ObjectNode, TableInfo)
+            ├── mssql.rs       # SQL Server/Azure SQL via tiberius: conexão, streaming, conversão de tipos
+            ├── mssql_meta.rs  # Introspecção (sys.*) e geração de DDL
+            ├── entra.rs       # Login Microsoft Entra interativo (OAuth Auth Code + PKCE, refresh token)
+            ├── secrets.rs     # Senhas/tokens no cofre do sistema (keyring)
+            └── it_tests.rs    # Testes de integração (precisam de TODORS_MSSQL_TEST)
 ```
 
 ---
@@ -96,15 +135,39 @@ O backend Rust (`src-tauri/src/main.rs`) expõe os seguintes comandos via Tauri 
 | `clear_http_cookies` | - | `()` | Limpa o cookie jar da sessão |
 | `load_http_data` / `save_http_data` | `{ data: Value }` | `Value` / `Result` | Documento único `http.json` (formato definido em `httpModel.js`) |
 | `read_text_file` / `write_file` | `{ path, text?, base64? }` | `Result` | Importação/exportação e salvar corpo de resposta |
+| `save_note_image` | bytes crus no corpo + header `x-ext` | `Result<String>` | Salva imagem colada em `note-images/<hash>.<ext>` e retorna o nome |
+| `import_note_image` | `{ path }` | `Result<String>` | Copia uma imagem do disco (import de Markdown) |
+| `export_note_images` | `{ names, dir }` | `Result` | Copia imagens para a pasta `<nome>.assets` do export |
+| `gc_note_images` | `{ keep }` | `Result<u32>` | Apaga imagens órfãs com mais de 24 h (chamado após carregar as notas) |
+
+Imagens das notas são servidas pelo protocolo `noteimg` (`http://noteimg.localhost/<nome>` no Windows, `noteimg://localhost/<nome>` no Linux/macOS); o HTML guarda só a URL e `normalizeNote` converte entre as duas formas.
 
 Diálogos de arquivo usam `tauri-plugin-dialog` (`plugin:dialog|open` / `plugin:dialog|save`).
 
+### Banco de dados (`src-tauri/src/db/`)
+
+Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `target = { session_id, conn: ConnConfig, database }`: a sessão é aberta no primeiro uso e reaberta sozinha se cair. Sessões: `meta:<conn>:<db>` (Explorer/autocomplete), `tab:<tabId>` (tabelas), `console:<consoleId>`.
+
+| Comando IPC | Parâmetros | Retorno | Descrição |
+| :--- | :--- | :--- | :--- |
+| `load_db_data` / `save_db_data` | `{ data: Value }` | `Value` / `Result` | Documento `databases.json` (formato em `dbModel.js`, sem segredos) |
+| `db_set_password` / `db_has_password` / `db_forget_secrets` | `{ connId, password? }` | `Result` | Senha (e refresh token do Entra) no cofre do sistema |
+| `db_test_connection` | `{ conn, password? }` | `Result<ServerInfo>` | Testa a configuração do diálogo |
+| `db_connect` | `{ target }` | `Result<ServerInfo>` | Abre a sessão (pode abrir o navegador para o login do Entra) |
+| `db_disconnect` | `{ prefix }` | `()` | Fecha as sessões com esse prefixo |
+| `db_introspect` | `{ target, path: {kind, schema, name} }` | `Result<Vec<ObjectNode>>` | `databases` / `schemas` / `schema` / `table` / `view` / `procedure` / `function` |
+| `db_table_info` / `db_ddl` | `{ target, schema, name }` / `{ target, path }` | `Result` | Colunas com PK/identity/FK; DDL do objeto |
+| `db_execute` | `{ target, queryId, sql, maxRows?, onEvent: Channel }` | `Result<ExecSummary>` | Result sets em lotes pelo Channel (`result_start`/`rows`/`result_end`) |
+| `db_cancel` | `{ queryId }` | `()` | Cancela fechando o socket (o servidor aborta e desfaz a transação) |
+| `db_tx` | `{ target, action: begin\|commit\|rollback }` | `Result<u32>` | Devolve @@TRANCOUNT |
+| `db_apply` | `{ target, statements, atomic }` | `Result<Vec<u64>>` | Alterações do grid (tudo ou nada quando `atomic`) |
+
 ### Estruturas de Dados (JSON / Rust Structs)
 
-- **Todo**: `{ id: u64, text: String, done: bool, date: String ("YYYY-MM-DD"), is_my_day: bool, completed_date?: String }`
+- **Todo**: `{ id: u64, text: String, done: bool, date: String ("YYYY-MM-DD"), is_my_day: bool, completed_date?: String, note?: String }`
 - **Note**: `{ id: u64, title: String, content: String (HTML), created_at: String, updated_at: u64 (ms), pinned: bool, folder_id: u64 (0 = "Notas"), deleted_at?: u64 }`
 - **Folder**: `{ id: u64, name: String }`
-- **AppSettings**: `{ autostart: bool, start_minimized: bool }`
+- **AppSettings**: `{ autostart: bool, start_minimized: bool, theme: "system" | "light" | "dark" }`
 - **HttpRequest** (IPC): `{ id, method, url, headers: [{key,value}], body: {kind: none|text|multipart|file}, timeout_ms, follow_redirects, verify_ssl, use_cookies }`
 - **http.json**: `{ version, collections: [{id,name,description,auth,variables,scripts,folders}], requests: [...], environments, active_env, globals, history, settings }`
 
@@ -115,7 +178,9 @@ Diálogos de arquivo usam `tauri-plugin-dialog` (`plugin:dialog|open` / `plugin:
 1. **Aba "Meu Dia" vs "Histórico"**:
    - **Meu Dia**: Exibe tarefas pendentes agendadas para hoje (`date === today` ou `is_my_day === true`). Exibe tarefas concluídas SOMENTE se a data agendada for hoje E tiverem sido concluídas hoje (`completed_date === today`).
    - **Histórico**: Exibe TODAS as tarefas (pendentes e concluídas), servindo como registro completo.
+   - **Pendentes**: todas as tarefas não concluídas, agrupadas em Atrasadas / Hoje / Amanhã / próximas datas.
    - **Tarefas de outros dias concluídas**: Quando uma tarefa que não é de hoje (ex: tarefa atrasada) é concluída, ela sai de "Meu Dia" e fica guardada em "Histórico".
+   - **Layout**: igual ao das Notas. Bandeja: lista (seletor Meu Dia/Pendentes/Histórico) → detalhe em pilha. Desktop: listas | tarefas | detalhe (o detalhe só aparece com uma tarefa selecionada). O detalhe edita título, Meu Dia, data, Pomodoro e anotação (`note`).
 
 2. **Timer Pomodoro**:
    - Cada tarefa pendente possui um botão de relógio para abrir o Timer Pomodoro.
@@ -125,6 +190,9 @@ Diálogos de arquivo usam `tauri-plugin-dialog` (`plugin:dialog|open` / `plugin:
 3. **Notas Rápidas (cópia do app Notas do macOS)**:
    - O conteúdo é HTML gerado pelo editor (`h1/h2/h3/p/pre/blockquote/ul/ol/li/table/b/i/u/s`). A primeira linha é o título; `title` é derivado e salvo só por compatibilidade. Notas antigas em texto puro são migradas por `normalizeNote`.
    - Listas: `ul` (marcadores), `ul.dashed` (traços), `ol` (numerada), `ul.checklist` com `li.checked`. Tabelas usam `table.nt-table`.
+   - Imagens coladas (print, "Copiar imagem", HTML com `data:`) viram arquivos via `save_note_image`; nunca guardar base64 no `notes.json`. `<img>` leva `width/height` (sem reflow) e `loading="lazy"`.
+   - Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y usam `noteHistory.js`, não o undo nativo (que quebra com as edições diretas no DOM). Toda alteração deve passar por `changed()` no editor para entrar no histórico.
+   - Markdown: menu "…" (e menus de contexto) importa `.md` como novas notas e exporta a nota (imagens copiadas para `<nome>.assets/`).
    - Notas vazias são descartadas ao sair delas. Apagar move para "Apagadas Recentemente" (`deleted_at`); após 30 dias são removidas.
    - **Modo bandeja**: navegação em pilha Pastas → Lista → Nota dentro da janela 370x530. **Modo desktop**: botão de expandir chama `set_desktop_mode(true)`; layout de 3 colunas com barra unificada e botões de janela no estilo do SO (fechar = volta à bandeja e oculta). Ao entrar na aba Notas no modo bandeja, sempre abre a lista "Todas as Notas".
 
@@ -140,7 +208,23 @@ Diálogos de arquivo usam `tauri-plugin-dialog` (`plugin:dialog|open` / `plugin:
    - O parser gera AST própria (não usa `JSON.parse`) para preservar ordem das chaves e números grandes. Cada reparo vira um passo (`info` | `fix` | `warn`) exibido no diagnóstico.
    - Opções (indentação, ordenar chaves, expandir JSON em strings, formatar ao colar) e o texto ficam no `localStorage` (conveniência local, não vai para o Rust).
 
-6. **Janela Frameless & System Tray**:
+6. **Tema claro/escuro**:
+   - Preferência em `AppSettings.theme` (com cópia em `localStorage` para o script do `<head>` aplicar antes da primeira pintura). O tema resolvido fica em `<html data-theme>`.
+   - CSS novo deve usar tokens: `rgba(var(--fg-rgb), a)` para camadas translúcidas, `calc(a * var(--shade-k))` no alfa de sombras/poços escuros, `--nt-*`/`--c-*` para superfícies e `--syn-*` para realce. Cores claras específicas de cada app ficam em `theme.css`.
+
+7. **Editor de código**: campos de código (body raw/GraphQL e scripts do HTTP, Formatter JSON, console SQL) usam `codeEditor()`, com numeração de linhas, realce, Tab/Shift+Tab e Enter com recuo.
+
+8. **Banco de Dados (cópia do DataGrip)**:
+   - SQL Server e Azure SQL (driver `tiberius`, TLS rustls). Auth: login SQL ou Microsoft Entra interativo/MFA. Senhas e tokens NUNCA vão para JSON (cofre do sistema via `keyring`).
+   - Novo banco = implementar `Driver`/`Session` em `src-tauri/src/db/` + um dialeto em `sqlDialect.js`. O frontend só conhece `ColumnMeta.kind` (int, num, dec, bool, str, date, time, datetime, guid, bin, xml, other).
+   - Valores sem perder precisão: bigint fora do intervalo seguro, decimal/money e datas chegam como string; binário como `0x…` (truncado em 4 KB → somente leitura).
+   - Azure SQL não aceita nomes de três partes: cada banco da árvore usa uma sessão própria; a introspecção roda no banco da sessão.
+   - Grid: virtualizado nos dois eixos (só células visíveis viram HTML), filtro/ordenação locais trabalham em índices (`GridModel.view`). Edição só com PK e conexão não somente leitura; o SQL é revisado antes de gravar (`reviewChangesDialog`).
+   - Tabelas paginam no servidor (`OFFSET n ROWS FETCH NEXT page+1`); o console limita linhas por result set (excedentes descartados, o lote segue rodando).
+   - Cancelar fecha a conexão da aba (o Attention do tiberius deixa a conexão dessincronizada); a sessão é reaberta no próximo comando.
+   - Modo bandeja mostra só a lista de conexões; o cliente completo é desktop-only.
+
+9. **Janela Frameless & System Tray**:
    - A janela não possui barra de título do sistema operacional (`decorations: false`). A barra de arrastar é estilizada via `data-tauri-drag-region`.
    - O aplicativo minimiza para a bandeja do sistema ao fechar ou ao clicar em ocultar.
 
@@ -151,3 +235,7 @@ Diálogos de arquivo usam `tauri-plugin-dialog` (`plugin:dialog|open` / `plugin:
 - Ao adicionar novos recursos JS, coloque a lógica em componentes desacoplados na pasta `src/js/components/`.
 - Mantenha o arquivo `src/main.js` apenas para carregar o estado inicial e vincular ouvintes globais.
 - Sempre rode `./build_linux.sh` ou `cargo check` em `src-tauri` para validar alterações no código Rust ou builds.
+- Banco: `node tests/db-utils.test.mjs` (utilitários JS) e `cargo test` em `src-tauri`; os testes de integração precisam de um SQL Server: `docker run -d -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=TodoRs#Test2026" -p 14333:1433 mcr.microsoft.com/mssql/server:2022-latest` e `TODORS_MSSQL_TEST="localhost,14333,sa,TodoRs#Test2026" cargo test it_ -- --test-threads=1`.
+- **Desempenho**: comandos Tauri síncronos rodam na thread da UI. Gravações em disco devem usar `persist::write` (nunca `fs::write` direto num comando), e efeitos caros (ex.: `reg.exe` do autostart) só quando o valor muda.
+- Não salvar em disco ao navegar entre abas: só gravar quando houver alteração pendente.
+- Abas ocultas usam `display: none`. Não usar `content-visibility: hidden` nelas: com a aba JSON grande, todos os frames do app ficam ~45 ms mais lentos.

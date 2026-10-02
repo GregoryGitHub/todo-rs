@@ -7,11 +7,45 @@ const HTML_START = /^\s*<(h[1-6]|p|div|ul|ol|table|pre|blockquote|br)[\s>/]/i;
 // Tags kept on paste; any other element is replaced by its content.
 const ALLOWED_TAGS = new Set([
   "H1", "H2", "H3", "P", "DIV", "BR", "B", "STRONG", "I", "EM", "U", "S", "STRIKE",
-  "UL", "OL", "LI", "PRE", "CODE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TD", "TH",
+  "UL", "OL", "LI", "PRE", "CODE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TD", "TH", "IMG",
 ]);
-const DROP_TAGS = new Set(["SCRIPT", "STYLE", "META", "LINK", "TITLE", "HEAD", "IFRAME", "OBJECT", "SVG", "IMG", "VIDEO", "AUDIO", "CANVAS", "INPUT", "BUTTON", "SELECT", "TEXTAREA", "TEMPLATE"]);
+const DROP_TAGS = new Set(["SCRIPT", "STYLE", "META", "LINK", "TITLE", "HEAD", "IFRAME", "OBJECT", "SVG", "VIDEO", "AUDIO", "CANVAS", "INPUT", "BUTTON", "SELECT", "TEXTAREA", "TEMPLATE"]);
 const HEADING_MAP = { H4: "H3", H5: "H3", H6: "H3" };
 const LEAF_BLOCKS = "h1,h2,h3,p,li,pre,td,th,div,blockquote";
+
+// ---------- Images ----------
+// Images are files kept by the Rust side (src-tauri/src/note_images.rs) and served by the
+// "noteimg" protocol; the note HTML only stores the URL, so notes.json stays small.
+// WebView2 (Windows) exposes custom protocols as http://<scheme>.localhost/.
+
+const IMG_BASE = /Windows|Android/i.test(navigator.userAgent) ? "http://noteimg.localhost/" : "noteimg://localhost/";
+const IMG_URL_RE = /(?:noteimg:\/\/localhost\/|http:\/\/noteimg\.localhost\/)([a-z0-9]+\.[a-z0-9]+)/gi;
+
+export function noteImageUrl(name) {
+  return IMG_BASE + name;
+}
+
+/** File name of an image stored by the app, or null for remote/data URLs. */
+export function localImageName(src) {
+  const m = /^(?:noteimg:\/\/localhost\/|http:\/\/noteimg\.localhost\/)([a-z0-9]+\.[a-z0-9]+)$/i.exec(src || "");
+  return m ? m[1] : null;
+}
+
+/** Names of all stored images referenced by a note's HTML. */
+export function noteImageNames(html) {
+  if (!html.includes("noteimg")) return [];
+  return [...html.matchAll(IMG_URL_RE)].map((m) => m[1]);
+}
+
+function isAllowedImageSrc(src) {
+  return !!localImageName(src) || /^https?:\/\//i.test(src) || /^data:image\/(png|jpe?g|gif|webp|bmp|avif);base64,/i.test(src);
+}
+
+/** HTML for an image; width/height keep the layout stable while the file loads. */
+export function imageHtml(src, width = 0, height = 0, alt = "") {
+  const size = width > 0 && height > 0 ? ` width="${Math.round(width)}" height="${Math.round(height)}"` : "";
+  return `<img src="${escapeHtml(src)}"${size}${alt ? ` alt="${escapeHtml(alt)}"` : ""} loading="lazy" decoding="async">`;
+}
 
 export function escapeHtml(text) {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -28,11 +62,13 @@ function legacyToHtml(title, content) {
 export function normalizeNote(n) {
   const content = n.content || "";
   const isHtml = HTML_START.test(content);
+  // Notes copied from another OS carry the other WebView's image URL form.
+  const html = isHtml && content.includes("noteimg") ? content.replace(IMG_URL_RE, (_, name) => IMG_BASE + name) : content;
   const ts = Number.isFinite(n.updated_at) && n.updated_at > 0 ? n.updated_at : Math.floor(Number(n.id)) || Date.now();
   return {
     id: Math.floor(Number(n.id)) || Date.now(),
     title: n.title || "",
-    content: isHtml ? content : legacyToHtml(n.title === "Sem título" ? "" : n.title, content),
+    content: isHtml ? html : legacyToHtml(n.title === "Sem título" ? "" : n.title, content),
     created_at: n.created_at || new Date(ts).toISOString(),
     updated_at: Math.floor(ts),
     pinned: !!n.pinned,
@@ -86,7 +122,7 @@ export function noteHasTable(html) {
 }
 
 export function noteIsEmpty(note) {
-  return noteLines(note.content).length === 0 && !noteHasTable(note.content);
+  return noteLines(note.content).length === 0 && !noteHasTable(note.content) && !/<img[\s>]/i.test(note.content);
 }
 
 export function noteMatches(note, query) {
@@ -120,6 +156,18 @@ function cleanNode(node) {
 
     if (!ALLOWED_TAGS.has(el.tagName)) {
       el.replaceWith(...el.childNodes);
+      continue;
+    }
+
+    if (el.tagName === "IMG") {
+      const src = el.getAttribute("src") || "";
+      if (!isAllowedImageSrc(src)) {
+        el.remove();
+        continue;
+      }
+      const tpl = document.createElement("template");
+      tpl.innerHTML = imageHtml(src, +el.getAttribute("width") || 0, +el.getAttribute("height") || 0, el.getAttribute("alt") || "");
+      el.replaceWith(tpl.content);
       continue;
     }
 

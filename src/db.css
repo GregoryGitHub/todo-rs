@@ -1,0 +1,2050 @@
+/* =========================================================================
+   Banco de Dados — cliente estilo DataGrip (SQL Server / Azure SQL).
+   Desktop: Explorer | abas (tabelas, consoles, DDL) | log de consultas.
+   Bandeja: lista de conexões. Reaproveita .notes-app/.nt-* e .hx-* (inputs, modais).
+   ========================================================================= */
+
+.db-app {
+  --nt-yellow: #38bdf8;
+  --nt-yellow-soft: rgba(56, 189, 248, 0.14);
+  --nt-selected: #1e4a63;
+  --hx-accent: #0ea5e9;
+  --hx-accent-hover: #38bdf8;
+  --hx-input-bg: rgba(var(--fg-rgb), 0.045);
+  --hx-input-border: rgba(var(--fg-rgb), 0.1);
+  --db-ok: #4ade80;
+  --db-warn: #fbbf24;
+  --db-bad: #f87171;
+  --db-edited: rgba(59, 130, 246, 0.22);
+  --db-new: rgba(34, 197, 94, 0.16);
+  --db-deleted: rgba(239, 68, 68, 0.16);
+  --db-sel: rgba(56, 189, 248, 0.2);
+  --db-sel-strong: rgba(56, 189, 248, 0.34);
+  --db-hit: rgba(250, 204, 21, 0.32);
+  --db-grid-line: rgba(var(--fg-rgb), 0.07);
+  --db-explorer-w: 300px;
+  --db-log-h: 180px;
+}
+
+:root[data-theme="light"] .db-app {
+  --nt-yellow: #0284c7;
+  --nt-yellow-soft: rgba(2, 132, 199, 0.1);
+  --nt-selected: #cfe8f7;
+  --hx-accent: #0284c7;
+  --hx-accent-hover: #0369a1;
+  --hx-input-bg: rgba(0, 0, 0, 0.025);
+  --hx-input-border: rgba(0, 0, 0, 0.14);
+  --db-ok: #15803d;
+  --db-warn: #b45309;
+  --db-bad: #dc2626;
+  --db-edited: rgba(59, 130, 246, 0.16);
+  --db-new: rgba(34, 197, 94, 0.14);
+  --db-deleted: rgba(239, 68, 68, 0.12);
+  --db-sel: rgba(2, 132, 199, 0.13);
+  --db-sel-strong: rgba(2, 132, 199, 0.24);
+  --db-hit: rgba(250, 204, 21, 0.45);
+  --db-grid-line: rgba(0, 0, 0, 0.08);
+}
+
+body.desktop-mode #view-db {
+  gap: 0;
+}
+
+.db-app input,
+.db-app textarea,
+.db-app select {
+  font-family: inherit;
+  color: var(--nt-text);
+  user-select: text;
+}
+
+.db-app [hidden] {
+  display: none !important;
+}
+
+.db-toolbar .nt-tb-title {
+  margin: 0 6px 0 4px;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.db-app[style*="--conn"] .db-toolbar .nt-tb-title strong {
+  color: var(--conn);
+}
+
+/* ---------- Layout desktop ---------- */
+
+.db-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.db-explorer {
+  width: var(--db-explorer-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--nt-sidebar);
+}
+
+.db-app.explorer-hidden .db-explorer,
+.db-app.explorer-hidden .db-split-v {
+  display: none;
+}
+
+.db-split-v {
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 5;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+}
+
+.db-split-v::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: var(--nt-sep);
+}
+
+.db-split-h {
+  height: 5px;
+  margin: -2px 0;
+  z-index: 5;
+  flex-shrink: 0;
+  cursor: row-resize;
+  position: relative;
+}
+
+.db-split-h::after {
+  content: "";
+  position: absolute;
+  inset: 2px 0;
+  background: var(--nt-sep);
+}
+
+.db-split-v:hover::after,
+body.db-resizing-x .db-split-v::after,
+.db-split-h:hover::after,
+body.db-resizing-y .db-split-h::after {
+  background: var(--nt-yellow);
+}
+
+body.db-resizing-x,
+body.db-resizing-x * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.db-resizing-y,
+body.db-resizing-y * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+.db-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--nt-text-2);
+  letter-spacing: 0.1px;
+}
+
+.db-pane-head > i {
+  color: var(--nt-muted);
+  font-size: 11px;
+}
+
+.db-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 8px 6px;
+  padding: 0 9px;
+  height: 27px;
+  border-radius: 7px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: var(--nt-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.db-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 12px;
+}
+
+/* ---------- Database Explorer ---------- */
+
+.db-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 10px;
+  outline: none;
+  font-size: 12.5px;
+}
+
+.dbx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 23px;
+  padding-right: 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.dbx-row:hover {
+  background: rgba(var(--fg-rgb), 0.05);
+}
+
+.dbx-row.sel {
+  background: var(--nt-yellow-soft);
+}
+
+.db-tree:focus .dbx-row.sel {
+  background: var(--db-sel-strong);
+}
+
+.dbx-caret {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 8.5px;
+  color: var(--nt-muted);
+  cursor: pointer;
+}
+
+.dbx-icon {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--nt-muted);
+}
+
+.dbx-row.k-conn .dbx-icon,
+.dbx-row.k-database .dbx-icon {
+  color: var(--nt-yellow);
+}
+
+.dbx-row.k-table .dbx-icon {
+  color: #60a5fa;
+}
+
+.dbx-row.k-view .dbx-icon {
+  color: #a78bfa;
+}
+
+.dbx-row.k-procedure .dbx-icon,
+.dbx-row.k-function .dbx-icon {
+  color: #f59e0b;
+}
+
+.dbx-row.k-key .dbx-icon,
+.dbx-row.k-column.flag .dbx-icon {
+  color: #eab308;
+}
+
+.dbx-row.k-fk .dbx-icon {
+  color: #22d3ee;
+}
+
+.dbx-row.colored {
+  box-shadow: inset 3px 0 0 var(--conn);
+}
+
+.dbx-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dbx-row.k-conn .dbx-label {
+  font-weight: 600;
+}
+
+.dbx-meta,
+.dbx-detail {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+.dbx-detail {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--nt-mono);
+  font-size: 10.5px;
+}
+
+.dbx-state {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(var(--fg-rgb), 0.18);
+}
+
+.dbx-state.connected {
+  background: var(--db-ok);
+}
+
+.dbx-state.connecting {
+  background: var(--db-warn);
+  animation: dbPulse 1s ease infinite;
+}
+
+.dbx-state.error {
+  background: var(--db-bad);
+}
+
+.dbx-ro {
+  font-size: 9.5px;
+  color: var(--nt-muted);
+}
+
+.dbx-spin {
+  font-size: 10px;
+  color: var(--nt-muted);
+}
+
+.dbx-err {
+  font-size: 10.5px;
+  color: var(--db-bad);
+}
+
+.dbx-error {
+  font-size: 11px;
+  color: var(--c-danger-text);
+  padding: 2px 8px 6px;
+  white-space: normal;
+  word-break: break-word;
+  user-select: text;
+}
+
+.dbx-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 16px;
+  color: var(--nt-muted);
+  text-align: center;
+}
+
+.dbx-empty > i {
+  font-size: 26px;
+  opacity: 0.5;
+}
+
+@keyframes dbPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- Abas ---------- */
+
+.db-tabs {
+  display: flex;
+  height: 34px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--nt-sep);
+  scrollbar-width: thin;
+}
+
+.db-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 0 6px 0 12px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--nt-sep);
+  font-size: 12px;
+  color: var(--nt-text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.db-tab:hover {
+  background: rgba(var(--fg-rgb), 0.04);
+}
+
+.db-tab.on {
+  background: rgba(var(--fg-rgb), 0.07);
+  color: var(--nt-text);
+}
+
+.db-tab.on::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--conn, var(--nt-yellow));
+}
+
+.db-tab-color {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--conn);
+}
+
+.db-tab-icon {
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+.db-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-tab-where {
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.db-tab.dirty .db-tab-title::after {
+  content: " •";
+  color: var(--nt-yellow);
+}
+
+.db-tab.running .db-tab-icon {
+  color: var(--nt-yellow);
+  animation: dbPulse 1s ease infinite;
+}
+
+.db-tab-x {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--nt-muted) !important;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.db-tab:hover .db-tab-x,
+.db-tab.on .db-tab-x {
+  opacity: 1;
+}
+
+.db-tab-x:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+  color: var(--nt-text) !important;
+}
+
+.db-tab-rename {
+  width: 110px;
+  height: 22px;
+  border: 1px solid var(--nt-yellow);
+  border-radius: 4px;
+  background: var(--c-elevated);
+  padding: 0 5px;
+  font-size: 12px;
+  outline: none;
+}
+
+.db-tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--nt-muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+.db-placeholder > i {
+  font-size: 34px;
+  opacity: 0.45;
+}
+
+.db-placeholder.err > i {
+  color: var(--db-bad);
+  opacity: 0.8;
+}
+
+.db-placeholder.err p {
+  max-width: 640px;
+  color: var(--c-danger-text);
+  user-select: text;
+  word-break: break-word;
+}
+
+.db-placeholder-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.db-shortcuts {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 5px 14px;
+  margin-top: 14px;
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.db-shortcuts div {
+  display: contents;
+}
+
+.db-shortcuts kbd {
+  justify-self: end;
+  font-family: var(--nt-mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 4px;
+  color: var(--nt-text-2);
+}
+
+/* ---------- Log de consultas ---------- */
+
+.db-log {
+  height: var(--db-log-h);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.db-app.log-hidden .db-log,
+.db-app.log-hidden .db-split-h {
+  display: none;
+}
+
+.db-log-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 12px 8px;
+  font-family: var(--nt-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.dbl {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  column-gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(var(--fg-rgb), 0.035);
+}
+
+.dbl-time {
+  color: var(--nt-muted);
+}
+
+.dbl-where {
+  color: var(--nt-yellow);
+  white-space: nowrap;
+}
+
+.dbl-sql {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: var(--syn-plain);
+  max-height: 9em;
+  overflow: hidden;
+}
+
+.dbl-res {
+  grid-column: 3;
+  color: var(--nt-muted);
+}
+
+.dbl-res.err {
+  color: var(--c-danger-text);
+  white-space: pre-wrap;
+}
+
+/* ---------- Barra de ferramentas das abas ---------- */
+
+.dbt,
+.dbc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dbt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--nt-sep);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dbt-btn {
+  height: 26px;
+  min-width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--nt-text-2) !important;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dbt-btn:hover:not(:disabled),
+.dbt-btn.on {
+  background: rgba(var(--fg-rgb), 0.09);
+  color: var(--nt-text) !important;
+}
+
+.dbt-btn.on {
+  color: var(--nt-yellow) !important;
+}
+
+.dbt-btn i {
+  font-size: 12px;
+}
+
+.dbt-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 5px;
+  flex-shrink: 0;
+  background: var(--nt-sep-strong);
+}
+
+.dbt-page,
+.dbt-db {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--hx-input-border);
+  border-radius: 6px;
+  background: var(--hx-input-bg);
+  font-size: 11.5px;
+  color: var(--nt-text-2) !important;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbt-page i,
+.dbt-db i {
+  font-size: 8px;
+  color: var(--nt-muted);
+}
+
+.dbt-db i:first-child {
+  font-size: 10.5px;
+  color: var(--nt-yellow);
+}
+
+.dbt-submit,
+.dbt-run {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  margin-left: 4px;
+  border: 1px solid var(--hx-input-border);
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: var(--nt-text-2) !important;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.dbt-submit.on,
+.dbt-run {
+  border-color: transparent;
+  background: var(--hx-accent);
+  color: #fff !important;
+}
+
+.dbt-run {
+  margin-left: 0;
+  margin-right: 2px;
+  background: #16a34a;
+}
+
+.dbt-run:hover:not(:disabled) {
+  background: #22c55e;
+}
+
+.dbt-submit.on:hover {
+  background: var(--hx-accent-hover);
+}
+
+.dbt-tx {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.dbt-tx-select {
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--hx-input-border);
+  border-radius: 6px;
+  background: var(--hx-input-bg);
+  font-size: 11.5px;
+  cursor: pointer;
+  outline: none;
+}
+
+.dbt-tx-select option {
+  background: var(--c-elevated);
+}
+
+.dbt-tx-badge {
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--db-warn);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.dbt-commit:not(:disabled) i {
+  color: var(--db-ok);
+}
+
+.dbt-rollback:not(:disabled) i {
+  color: var(--db-bad);
+}
+
+.dbt-ro {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dbt-ro i {
+  font-size: 10px;
+}
+
+/* WHERE / ORDER BY */
+.dbt-filters {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--nt-sep);
+}
+
+.dbt-filter {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.dbt-filter + .dbt-filter {
+  border-left: 1px solid var(--nt-sep);
+  flex: 0.6;
+}
+
+.dbt-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--nt-mono);
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+}
+
+.dbt-filter-label i {
+  font-size: 10px;
+}
+
+.dbt-filter-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: none;
+  background: none;
+  outline: none;
+  font-family: var(--nt-mono) !important;
+  font-size: 12px;
+}
+
+.dbt-filter-input::placeholder {
+  color: rgba(var(--fg-rgb), 0.22);
+}
+
+.dbt-filter:focus-within {
+  box-shadow: inset 0 -2px 0 var(--nt-yellow);
+}
+
+.dbt-grid {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+/* Rodapé */
+.dbf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--nt-sep);
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbf-info {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dbf-info.busy {
+  color: var(--nt-yellow);
+}
+
+.dbf-info.bad {
+  color: var(--c-danger-text);
+}
+
+.dbf-sel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+/* ---------- DataGrid ---------- */
+
+.dg {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  font-family: var(--nt-mono);
+  font-size: 12px;
+}
+
+.dg-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  overscroll-behavior: contain;
+}
+
+.dg-sizer {
+  position: relative;
+}
+
+.dg-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  background: var(--nt-bg);
+  border-bottom: 1px solid var(--nt-sep-strong);
+}
+
+.dg-corner {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: var(--dg-rn);
+  height: 100%;
+  background: var(--nt-bg);
+  border-right: 1px solid var(--db-grid-line);
+  cursor: pointer;
+}
+
+.dg-corner:hover {
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.dg-hcells {
+  position: absolute;
+  inset: 0;
+}
+
+.dg-h {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 0 8px;
+  border-right: 1px solid var(--db-grid-line);
+  font-family: var(--nt-font);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--nt-text-2);
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+}
+
+.dg-h:hover {
+  background: rgba(var(--fg-rgb), 0.04);
+}
+
+.dg-h.sel {
+  background: var(--db-sel);
+  color: var(--nt-text);
+}
+
+.dg-h-type {
+  font-size: 9.5px;
+  color: var(--nt-muted);
+  flex-shrink: 0;
+}
+
+.dg-h-pk {
+  font-size: 9.5px;
+  color: #eab308;
+  flex-shrink: 0;
+}
+
+.dg-h-fk {
+  font-size: 9.5px;
+  color: #22d3ee;
+  flex-shrink: 0;
+}
+
+.dg-h-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg-h-btn {
+  width: 18px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--nt-muted) !important;
+  font-size: 9.5px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.dg-h:hover .dg-h-btn,
+.dg-h-btn.on {
+  opacity: 1;
+}
+
+.dg-h-btn.on {
+  color: var(--nt-yellow) !important;
+}
+
+.dg-h-btn:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+
+.dg-h-btn sup {
+  font-size: 8px;
+  margin-left: 1px;
+}
+
+.dg-rs {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.dg-rs:hover {
+  background: var(--nt-yellow-soft);
+}
+
+.dg-drop {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--nt-yellow);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.dg.dg-moving,
+.dg.dg-moving * {
+  cursor: grabbing !important;
+}
+
+.dg-body {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+}
+
+.dg-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+}
+
+.dg-row.cur {
+  background: rgba(var(--fg-rgb), 0.03);
+}
+
+.dg-rn {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: var(--dg-rn);
+  height: 100%;
+  padding-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--nt-bg);
+  border-right: 1px solid var(--db-grid-line);
+  border-bottom: 1px solid var(--db-grid-line);
+  color: var(--nt-muted);
+  font-size: 11px;
+  user-select: none;
+  cursor: default;
+}
+
+.dg-rn.sel {
+  background: var(--db-sel-strong);
+  color: var(--nt-text);
+}
+
+.dg-row.new .dg-rn {
+  color: var(--db-ok);
+  font-weight: 700;
+}
+
+.dg-c {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--db-grid-line);
+  border-bottom: 1px solid var(--db-grid-line);
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  color: var(--nt-text);
+  cursor: cell;
+}
+
+.dg-c.k-int,
+.dg-c.k-num,
+.dg-c.k-dec {
+  justify-content: flex-end;
+  color: var(--syn-num);
+}
+
+.dg-c.k-bool {
+  color: var(--syn-bool);
+}
+
+.dg-c.k-date,
+.dg-c.k-datetime,
+.dg-c.k-time {
+  color: var(--syn-str);
+}
+
+.dg-c.k-guid,
+.dg-c.k-bin {
+  color: var(--syn-key);
+}
+
+.dg-row.edited .dg-c.edited,
+.dg-c.edited {
+  background: var(--db-edited);
+}
+
+.dg-row.new .dg-c {
+  background: var(--db-new);
+}
+
+.dg-row.deleted .dg-c {
+  background: var(--db-deleted);
+  text-decoration: line-through;
+  color: var(--nt-muted);
+}
+
+.dg-c.hit {
+  box-shadow: inset 0 0 0 999px var(--db-hit);
+}
+
+.dg-c.sel {
+  background-color: var(--db-sel);
+}
+
+.dg-c.sel.edited {
+  background: linear-gradient(var(--db-sel), var(--db-sel)), var(--db-edited);
+}
+
+.dg-c.act {
+  outline: 2px solid var(--nt-yellow);
+  outline-offset: -2px;
+}
+
+.dg:not(:focus-within) .dg-c.act {
+  outline-color: rgba(var(--fg-rgb), 0.3);
+}
+
+.dg-null,
+.dg-marker {
+  color: var(--nt-muted);
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.dg-nl {
+  color: var(--nt-muted);
+  opacity: 0.7;
+}
+
+.dg-msg {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 40px);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.05);
+  color: var(--nt-muted);
+  font-family: var(--nt-font);
+  font-size: 12.5px;
+  text-align: center;
+  white-space: pre-wrap;
+  user-select: text;
+  pointer-events: none;
+}
+
+.dg-editor {
+  position: absolute;
+  z-index: 6;
+  margin: 0;
+  padding: 3px 7px;
+  border: 2px solid var(--nt-yellow);
+  border-radius: 2px;
+  background: var(--c-elevated);
+  color: var(--nt-text);
+  font-family: var(--nt-mono) !important;
+  font-size: 12px;
+  line-height: 18px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, calc(0.4 * var(--shade-k)));
+}
+
+/* Busca */
+.dg-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--nt-sep);
+  font-family: var(--nt-font);
+  color: var(--nt-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.dg-find input {
+  width: 260px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--hx-input-border);
+  border-radius: 6px;
+  background: var(--hx-input-bg);
+  font-size: 12px;
+  outline: none;
+}
+
+.dg-find input:focus {
+  border-color: var(--nt-yellow);
+}
+
+.dg-find-count {
+  min-width: 90px;
+}
+
+/* Modo registro */
+.dg-record {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--nt-font);
+}
+
+.dg-record-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--nt-bg);
+  border-bottom: 1px solid var(--nt-sep);
+  font-size: 12px;
+  color: var(--nt-muted);
+}
+
+.dg-record-state {
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--db-edited);
+  color: var(--nt-text);
+  font-size: 11px;
+}
+
+.dg-record-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 240px) 130px 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--db-grid-line);
+  font-size: 12px;
+  cursor: default;
+}
+
+.dg-record-row:hover {
+  background: rgba(var(--fg-rgb), 0.03);
+}
+
+.dg-record-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--nt-text-2);
+  overflow: hidden;
+}
+
+.dg-record-name i {
+  font-size: 9.5px;
+  color: var(--nt-muted);
+}
+
+.dg-record-type {
+  font-family: var(--nt-mono);
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+.dg-record-val {
+  font-family: var(--nt-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 12em;
+  overflow: auto;
+  user-select: text;
+}
+
+.dg-record-val.edited {
+  background: var(--db-edited);
+}
+
+.dg-record-val.act {
+  outline: 2px solid var(--nt-yellow);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.dg-record-empty {
+  padding: 30px;
+  text-align: center;
+  color: var(--nt-muted);
+}
+
+/* Popup do filtro local */
+.dg-pop {
+  position: absolute;
+  z-index: 20;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 9px;
+  background: var(--c-elevated-2);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, calc(0.55 * var(--shade-k)));
+  font-family: var(--nt-font);
+  font-size: 12px;
+  animation: ntPop 0.1s ease;
+}
+
+.dg-pop-title {
+  padding: 9px 12px 6px;
+  font-weight: 600;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg-pop-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 8px 6px;
+  padding: 0 8px;
+  height: 28px;
+  border: 1px solid var(--nt-yellow);
+  border-radius: 6px;
+  background: var(--hx-input-bg);
+  color: var(--nt-muted);
+  font-size: 11px;
+}
+
+.dg-pop-search {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 12px;
+}
+
+.dg-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 12px 3px 10px;
+  color: var(--nt-muted);
+  font-size: 11px;
+  border-bottom: 1px solid var(--nt-sep);
+}
+
+.dg-pop-head label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dg-pop-list {
+  overflow-y: auto;
+  position: relative;
+}
+
+.dg-pop-sizer {
+  position: relative;
+}
+
+.dg-pop-win {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+}
+
+.dg-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 12px 0 10px;
+  cursor: pointer;
+}
+
+.dg-pop-item:hover {
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.dg-pop-item input,
+.dg-pop-head input {
+  accent-color: var(--hx-accent);
+  margin: 0;
+}
+
+.dg-pop-val {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nt-mono);
+  font-size: 11.5px;
+}
+
+.dg-pop-n {
+  color: var(--nt-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 1px solid var(--nt-sep);
+  color: var(--nt-muted);
+  font-size: 11px;
+}
+
+.dg-pop-link {
+  border: none;
+  background: none;
+  color: var(--nt-yellow) !important;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Editor de valor */
+.dg-ve-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, calc(0.4 * var(--shade-k)));
+  font-family: var(--nt-font);
+}
+
+.dg-ve {
+  width: min(900px, 100%);
+  height: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 11px;
+  background: var(--c-elevated-2);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, calc(0.6 * var(--shade-k)));
+  animation: popIn 0.14s ease;
+}
+
+.dg-ve-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px 16px;
+  border-bottom: 1px solid var(--nt-sep);
+}
+
+.dg-ve-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dg-ve-title strong {
+  font-size: 13px;
+}
+
+.dg-ve-title span {
+  font-size: 11px;
+  color: var(--nt-muted);
+  font-family: var(--nt-mono);
+}
+
+.dg-ve-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 10px;
+}
+
+.dg-ve-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--nt-sep);
+}
+
+.dg-ve-info {
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+/* ---------- Console ---------- */
+
+.dbc-editor {
+  min-height: 60px;
+  display: flex;
+  padding: 8px;
+}
+
+.dbc-editor.full {
+  flex: 1;
+  min-height: 0;
+}
+
+.dbc-editor .ce {
+  border-radius: 6px;
+}
+
+.dbc.flash .dbc-editor .ce-input::selection {
+  background: rgba(34, 197, 94, 0.35);
+}
+
+.dbc-split {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  position: relative;
+}
+
+.dbc-split::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--nt-sep-strong);
+}
+
+.dbc-split:hover::after {
+  height: 2px;
+  background: var(--nt-yellow);
+}
+
+.dbc-results {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dbc-rtabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  height: 30px;
+  align-items: flex-end;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--nt-sep);
+}
+
+.dbc-rtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--nt-muted) !important;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dbc-rtab i {
+  font-size: 10px;
+}
+
+.dbc-rtab:hover {
+  color: var(--nt-text) !important;
+  background: rgba(var(--fg-rgb), 0.04);
+}
+
+.dbc-rtab.on {
+  color: var(--nt-text) !important;
+  background: rgba(var(--fg-rgb), 0.07);
+  box-shadow: inset 0 -2px 0 var(--nt-yellow);
+}
+
+.dbc-rtab.err i {
+  color: var(--db-bad);
+}
+
+.dbc-rcount {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.08);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbc-rbody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dbc-result {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dbc-rtools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--nt-sep);
+}
+
+.dbc-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--hx-input-border);
+  border-radius: 6px;
+  background: var(--nt-yellow-soft);
+  color: var(--nt-yellow) !important;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.dbc-output {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  font-family: var(--nt-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.dbc-msg {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  padding: 2px 0;
+}
+
+.dbc-msg-time {
+  color: var(--nt-muted);
+}
+
+.dbc-msg.ok .dbc-msg-text {
+  color: var(--db-ok);
+}
+
+.dbc-msg.error .dbc-msg-text {
+  color: var(--c-danger-text);
+  white-space: pre-wrap;
+}
+
+.dbc-msg-sql {
+  grid-column: 2;
+  margin: 0;
+  color: var(--nt-muted);
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 11px;
+  max-height: 5em;
+  overflow: hidden;
+}
+
+/* Autocomplete */
+.sqlc {
+  position: absolute;
+  z-index: 25;
+  width: 380px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 8px;
+  background: var(--c-elevated-2);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, calc(0.5 * var(--shade-k)));
+  font-family: var(--nt-font);
+}
+
+.sqlc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sqlc-item i {
+  width: 14px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--nt-muted);
+}
+
+.sqlc-item.on {
+  background: var(--nt-menu-hl);
+  color: #fff;
+}
+
+.sqlc-item.on i,
+.sqlc-item.on .sqlc-detail {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sqlc-label {
+  font-family: var(--nt-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sqlc-detail {
+  margin-left: auto;
+  padding-left: 10px;
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Diálogo de conexão ---------- */
+
+.db-conn-modal {
+  height: auto !important;
+  max-height: 100%;
+}
+
+.db-conn-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.db-row2,
+.db-row3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.db-row3 {
+  grid-template-columns: 1fr 90px 160px;
+}
+
+.db-kind-badge {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.08);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--nt-muted);
+}
+
+.db-kind-badge.azure {
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--nt-yellow);
+}
+
+.db-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+}
+
+.db-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--c);
+  cursor: pointer;
+  padding: 0;
+}
+
+.db-color.none {
+  background: transparent;
+  border: 2px dashed rgba(var(--fg-rgb), 0.3);
+}
+
+.db-color.on {
+  outline: 2px solid var(--nt-text);
+  outline-offset: 2px;
+}
+
+.db-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--nt-text-2);
+  cursor: pointer;
+}
+
+.db-check input {
+  accent-color: var(--hx-accent);
+}
+
+.db-advanced,
+.db-connstr-box {
+  margin-bottom: 12px;
+  border: 1px solid var(--nt-sep);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.db-advanced summary,
+.db-connstr-box summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nt-text-2);
+  user-select: none;
+}
+
+.db-advanced[open] summary,
+.db-connstr-box[open] summary {
+  margin-bottom: 10px;
+}
+
+.db-connstr {
+  min-height: 54px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.db-connstr-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.db-test {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: rgba(var(--fg-rgb), 0.05);
+  user-select: text;
+  word-break: break-word;
+}
+
+.db-test i {
+  margin-top: 2px;
+}
+
+.db-test.ok {
+  color: var(--db-ok);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.db-test.bad {
+  color: var(--c-danger-text);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.db-test.busy {
+  color: var(--nt-yellow);
+}
+
+.db-sql-preview {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--nt-sep);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, calc(0.18 * var(--shade-k)));
+  font-family: var(--nt-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--syn-plain);
+  user-select: text;
+}
+
+.db-sql-preview.tall {
+  flex: 1;
+  max-height: none;
+  margin: 0;
+}
+
+/* ---------- Bandeja ---------- */
+
+.db-compact {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-compact-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-compact-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 9px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--nt-sep);
+  border-left: 3px solid var(--conn, var(--nt-sep));
+  border-radius: 10px;
+  background: var(--nt-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-compact-item:hover {
+  background: var(--nt-hover);
+}
+
+.db-compact-item .dbx-state {
+  grid-row: span 2;
+}
+
+.db-compact-item > i {
+  grid-row: span 2;
+  color: var(--nt-yellow);
+}
+
+.db-compact-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-compact-host {
+  grid-column: 3;
+  font-size: 11.5px;
+  color: var(--nt-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-compact-empty,
+.db-compact-hint {
+  font-size: 12px;
+  color: var(--nt-muted);
+  text-align: center;
+  padding: 10px;
+}

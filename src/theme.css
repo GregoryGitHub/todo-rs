@@ -1,0 +1,152 @@
+/* =========================================================================
+   Temas claro/escuro.
+   O tema resolvido fica em <html data-theme="dark|light"> (ver js/components/theme.js).
+   Os demais CSS usam tokens: rgba(var(--fg-rgb), a) para camadas translúcidas sobre o
+   fundo e calc(a * var(--shade-k)) para sombras/poços escuros, que ficam mais suaves no claro.
+   ========================================================================= */
+
+:root {
+  color-scheme: dark;
+  --fg-rgb: 255, 255, 255;
+  --shade-k: 1;
+  --c-elevated: #2a2a2c;
+  --c-elevated-2: #232325;
+  --c-sunken: #121213;
+  --c-danger-text: #fca5a5;
+  --c-on-accent: #fff;
+
+  /* Realce de sintaxe (paleta do VS Code Dark+) */
+  --syn-key: #9cdcfe;
+  --syn-str: #ce9178;
+  --syn-num: #b5cea8;
+  --syn-bool: #569cd6;
+  --syn-null: #c586c0;
+  --syn-punc: #8e8e93;
+  --syn-comment: #6a9955;
+  --syn-keyword: #c586c0;
+  --syn-fn: #dcdcaa;
+  --syn-builtin: #4ec9b0;
+  --syn-tag: #569cd6;
+  --syn-attr: #9cdcfe;
+  --syn-entity: #d7ba7d;
+  --syn-var: #9cdcfe;
+  --syn-type: #4ec9b0;
+  --syn-plain: #c9c9cb;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --fg-rgb: 0, 0, 0;
+  --shade-k: 0.35;
+  --c-elevated: #ffffff;
+  --c-elevated-2: #f9f9fa;
+  --c-sunken: #ffffff;
+  --c-danger-text: #dc2626;
+
+  /* styles.css (bandeja) */
+  --bg: rgba(246, 246, 248, 0.97);
+  --panel: rgba(0, 0, 0, 0.04);
+  --panel-hover: rgba(0, 0, 0, 0.075);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --danger: #dc2626;
+
+  /* notes.css */
+  --nt-bg: #ffffff;
+  --nt-sidebar: #f2f2f5;
+  --nt-surface: rgba(0, 0, 0, 0.04);
+  --nt-hover: rgba(0, 0, 0, 0.06);
+  --nt-sep: rgba(0, 0, 0, 0.085);
+  --nt-sep-strong: rgba(0, 0, 0, 0.15);
+  --nt-text: #1d1d1f;
+  --nt-text-2: #3a3a3c;
+  --nt-muted: #86868b;
+  --nt-yellow: #c48f00;
+  --nt-yellow-soft: rgba(224, 168, 0, 0.15);
+  --nt-selected: #fbe6a2;
+  --nt-menu-bg: rgba(255, 255, 255, 0.97);
+  --nt-menu-hl: #2f6fdc;
+
+  /* Realce de sintaxe (paleta do VS Code Light+) */
+  --syn-key: #0451a5;
+  --syn-str: #a31515;
+  --syn-num: #098658;
+  --syn-bool: #0000ff;
+  --syn-null: #af00db;
+  --syn-punc: #6e6e73;
+  --syn-comment: #008000;
+  --syn-keyword: #af00db;
+  --syn-fn: #795e26;
+  --syn-builtin: #267f99;
+  --syn-tag: #800000;
+  --syn-attr: #e50000;
+  --syn-entity: #b5730b;
+  --syn-var: #001080;
+  --syn-type: #267f99;
+  --syn-plain: #1d1d1f;
+}
+
+:root[data-theme="light"] .http-app {
+  --nt-yellow: #e8590c;
+  --nt-yellow-soft: rgba(232, 89, 12, 0.12);
+  --nt-selected: #ffdccb;
+  --hx-accent: #f05a24;
+  --hx-accent-hover: #ff6c37;
+  --hx-input-bg: rgba(0, 0, 0, 0.025);
+  --hx-input-border: rgba(0, 0, 0, 0.14);
+  --hx-ok: #15803d;
+  --hx-redirect: #1d4ed8;
+  --hx-fail: #dc2626;
+  --hx-warn: #b45309;
+  --m-get: #007f31;
+  --m-post: #ad7a03;
+  --m-put: #0053b8;
+  --m-patch: #623497;
+  --m-delete: #8e1a10;
+  --m-head: #007f31;
+  --m-options: #a61468;
+}
+
+:root[data-theme="light"] .json-app {
+  --nt-yellow: #7c3aed;
+  --nt-yellow-soft: rgba(124, 58, 237, 0.12);
+  --jf-accent: #7c3aed;
+  --jf-accent-hover: #8b5cf6;
+  --jf-on-accent: #fff;
+  --jf-ok: #15803d;
+  --jf-info: #1d4ed8;
+  --jf-warn: #b45309;
+  --jf-bad: #dc2626;
+}
+
+:root[data-theme="light"] .tasks-app {
+  --nt-yellow: #2563eb;
+  --nt-yellow-soft: rgba(37, 99, 235, 0.1);
+  --nt-selected: #dbe7ff;
+  --tk-accent: #2563eb;
+  --tk-danger: #dc2626;
+  --tk-sun: #c27803;
+}
+
+/* Itens de menu com destaque azul: texto branco nos dois temas. */
+.nt-menu-item:hover:not(:disabled),
+.pop-item:hover {
+  color: #fff !important;
+}
+
+/* Transição suave ao trocar de tema (desligada durante a carga inicial). */
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
+}
+
+/* Poços de código mais leves no claro. */
+:root[data-theme="light"] .ce,
+:root[data-theme="light"] .jf-editor .ce {
+  background: rgba(0, 0, 0, 0.03);
+}

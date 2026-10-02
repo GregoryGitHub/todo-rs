@@ -4,18 +4,18 @@ import { saveTodosApi } from "../api.js";
 import { renderTasks } from "./tasks.js";
 
 const modalReschedule = document.getElementById("modal-reschedule");
-const btnRescheduleOpen = document.getElementById("btn-reschedule-open");
 const modalClose = document.getElementById("modal-close");
 const btnCancelReschedule = document.getElementById("btn-cancel-reschedule");
 const btnConfirmReschedule = document.getElementById("btn-confirm-reschedule");
 const rescheduleDateInput = document.getElementById("reschedule-date");
 
-export function initRescheduleModal() {
-  btnRescheduleOpen.addEventListener("click", () => {
-    rescheduleDateInput.value = getTomorrowStr();
-    modalReschedule.hidden = false;
-  });
+/** Abre o modal para mover todas as pendentes para outra data (padrão: amanhã). */
+export function openRescheduleModal() {
+  rescheduleDateInput.value = getTomorrowStr();
+  modalReschedule.hidden = false;
+}
 
+export function initRescheduleModal() {
   modalClose.addEventListener("click", () => {
     modalReschedule.hidden = true;
   });

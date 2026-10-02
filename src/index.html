@@ -19,10 +19,24 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     />
+    <script>
+      // Aplica o tema antes da primeira pintura (evita piscar); theme.js assume depois.
+      try {
+        var pref = localStorage.getItem("theme") || "system";
+        var light = pref === "light" || (pref === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+      } catch (e) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
+    <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="notes.css" />
     <link rel="stylesheet" href="http.css" />
     <link rel="stylesheet" href="json.css" />
+    <link rel="stylesheet" href="tasks.css" />
+    <link rel="stylesheet" href="code.css" />
+    <link rel="stylesheet" href="db.css" />
   </head>
   <body>
     <main class="app">
@@ -32,6 +46,9 @@
         <div class="window-controls">
           <button id="btn-hide" class="bar-btn" title="Ocultar na bandeja">
             <i class="fa-solid fa-minus"></i>
+          </button>
+          <button class="bar-btn" data-theme-toggle title="Alternar tema claro/escuro">
+            <i class="fa-solid fa-moon"></i>
           </button>
           <div class="menu-container">
             <button id="btn-menu-toggle" class="bar-btn" title="Opções">
@@ -54,55 +71,108 @@
 
       <!-- Main Content Views Container -->
       <div class="views-container">
-        <!-- VIEW 1: TASKS -->
+        <!-- VIEW 1: TASKS (bandeja = lista + detalhe em pilha; desktop = listas | tarefas | detalhe) -->
         <div id="view-tasks" class="view-panel active">
-          <!-- Main Header -->
-          <header class="app-header">
-            <div class="header-title">
-              <h1 id="view-title">
-                <i id="view-title-icon" class="fa-solid fa-sun"></i> <span id="view-title-text">Meu Dia</span>
-              </h1>
-              <span id="counter" class="counter">0</span>
+          <div id="tasks-app" class="notes-app tasks-app" data-pane="list">
+            <!-- Desktop: barra de ferramentas unificada -->
+            <header class="nt-toolbar desktop-only" data-tauri-drag-region>
+              <div class="nt-tb-sidebar" data-tauri-drag-region>
+                <div class="app-switch"></div>
+                <button class="nt-tb-btn" data-action="toggle-sidebar" title="Mostrar/ocultar listas">
+                  <i class="fa-solid fa-table-columns"></i>
+                </button>
+              </div>
+              <div class="nt-tb-editor" data-tauri-drag-region>
+                <div class="nt-tb-title" data-tauri-drag-region>
+                  <strong id="tk-tb-title">Meu Dia</strong>
+                  <span id="tk-tb-count">0 pendentes</span>
+                </div>
+                <div class="nt-tb-group">
+                  <button class="nt-tb-btn" data-action="new-task" title="Nova tarefa (Ctrl+N)">
+                    <i class="fa-solid fa-plus"></i>
+                  </button>
+                  <button class="nt-tb-btn" data-action="reschedule" title="Mover pendentes para outra data">
+                    <i class="fa-solid fa-calendar-plus"></i>
+                  </button>
+                </div>
+                <div class="nt-tb-spacer" data-tauri-drag-region></div>
+                <button class="nt-tb-btn" data-theme-toggle title="Alternar tema claro/escuro">
+                  <i class="fa-solid fa-moon"></i>
+                </button>
+                <button class="nt-tb-btn" data-action="tray" title="Voltar ao modo bandeja">
+                  <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+                </button>
+                <label class="nt-search">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input id="tk-search" type="search" placeholder="Buscar tarefas" autocomplete="off" />
+                </label>
+                <div class="win-caption">
+                  <button class="win-btn" data-action="minimize" title="Minimizar">
+                    <svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg>
+                  </button>
+                  <button class="win-btn" data-action="maximize" title="Maximizar / Restaurar">
+                    <svg class="ic-max" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg>
+                    <svg class="ic-restore" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" rx="1" /><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" /></svg>
+                  </button>
+                  <button class="win-btn win-close" data-action="close-desktop" title="Fechar (volta para a bandeja)">
+                    <svg viewBox="0 0 10 10"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg>
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <div class="nt-body">
+              <!-- Listas (só no desktop; na bandeja vira o seletor segmentado) -->
+              <aside class="nt-sidebar desktop-only">
+                <div class="nt-sidebar-scroll">
+                  <div class="nt-section-label">Tarefas</div>
+                  <ul id="tk-scopes" class="nt-folders"></ul>
+                </div>
+              </aside>
+
+              <!-- Lista de tarefas -->
+              <section class="nt-list-pane tk-list-pane">
+                <div class="tk-head">
+                  <div class="tk-head-text">
+                    <h2 class="tk-title"><i id="tk-title-icon" class="fa-solid fa-sun"></i><span id="tk-title-text">Meu Dia</span></h2>
+                    <span id="tk-subtitle" class="tk-subtitle"></span>
+                  </div>
+                  <div class="nt-nav-actions compact-only">
+                    <button class="nt-icon-btn" data-action="reschedule" title="Mover pendentes para outra data">
+                      <i class="fa-solid fa-calendar-plus"></i>
+                    </button>
+                    <button class="nt-icon-btn" data-action="desktop" title="Abrir no modo desktop">
+                      <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+                    </button>
+                  </div>
+                </div>
+                <div id="tk-seg" class="tk-seg compact-only"></div>
+                <form id="new-todo" class="tk-add" autocomplete="off">
+                  <span class="tk-add-icon"><i class="fa-solid fa-plus"></i></span>
+                  <input id="input" type="text" placeholder="Adicionar uma tarefa" maxlength="200" />
+                  <button type="submit" class="tk-add-btn" title="Adicionar (Enter)" aria-label="Adicionar">
+                    <i class="fa-solid fa-arrow-up"></i>
+                  </button>
+                </form>
+                <div id="tk-list" class="nt-list tk-list" tabindex="0"></div>
+              </section>
+
+              <!-- Detalhe da tarefa -->
+              <section class="nt-editor-pane tk-detail-pane">
+                <div class="nt-nav compact-only">
+                  <button class="nt-back" data-action="show-list">
+                    <i class="fa-solid fa-chevron-left"></i> <span id="tk-back-label">Meu Dia</span>
+                  </button>
+                  <div class="nt-nav-actions">
+                    <button class="nt-icon-btn" data-action="delete" title="Excluir tarefa">
+                      <i class="fa-regular fa-trash-can"></i>
+                    </button>
+                  </div>
+                </div>
+                <div id="tk-detail" class="tk-detail"></div>
+              </section>
             </div>
-            <button id="btn-reschedule-open" class="btn-secondary" title="Mover pendentes para o próximo dia">
-              <i class="fa-solid fa-calendar-plus"></i>
-              <span class="btn-label">Mover</span>
-            </button>
-          </header>
-
-          <!-- Navigation Tabs -->
-          <nav class="nav-tabs">
-            <button id="tab-my-day" class="tab-btn active">
-              <i class="fa-solid fa-sun"></i> Meu Dia
-            </button>
-            <button id="tab-all" class="tab-btn">
-              <i class="fa-solid fa-clock-rotate-left"></i> Histórico
-            </button>
-          </nav>
-
-          <!-- New Todo Form -->
-          <form id="new-todo" autocomplete="off">
-            <div class="input-wrapper">
-              <i class="fa-solid fa-plus input-icon"></i>
-              <input
-                id="input"
-                type="text"
-                placeholder="Adicionar uma tarefa..."
-                maxlength="200"
-                autofocus
-              />
-            </div>
-            <button type="submit" class="btn-add" aria-label="Adicionar">
-              <i class="fa-solid fa-arrow-right"></i>
-            </button>
-          </form>
-
-          <!-- Todo List -->
-          <ul id="list" class="todo-list"></ul>
-          <p id="empty" class="empty" hidden>
-            <i class="fa-solid fa-circle-check empty-icon"></i><br />
-            <span id="empty-text">Sem tarefas. Bora produzir!</span>
-          </p>
+          </div>
         </div>
 
         <!-- VIEW 2: NOTES (bandeja = navegação em pilha; desktop = 3 colunas estilo macOS Notes) -->
@@ -111,11 +181,7 @@
             <!-- Desktop: barra de ferramentas unificada -->
             <header class="nt-toolbar desktop-only" data-tauri-drag-region>
               <div class="nt-tb-sidebar" data-tauri-drag-region>
-                <div class="app-switch">
-                  <button data-switch-view="notes" title="Notas"><i class="fa-solid fa-note-sticky"></i></button>
-                  <button data-switch-view="http" title="HTTP"><i class="fa-solid fa-paper-plane"></i></button>
-                  <button data-switch-view="json" title="Formatter JSON"><i class="fa-solid fa-code"></i></button>
-                </div>
+                <div class="app-switch"></div>
                 <button class="nt-tb-btn" data-action="toggle-sidebar" title="Mostrar/ocultar pastas">
                   <i class="fa-solid fa-table-columns"></i>
                 </button>
@@ -142,7 +208,13 @@
                     <i class="fa-solid fa-table-cells"></i>
                   </button>
                 </div>
+                <button class="nt-tb-btn" data-action="more" title="Importar / exportar Markdown">
+                  <i class="fa-solid fa-ellipsis"></i>
+                </button>
                 <div class="nt-tb-spacer" data-tauri-drag-region></div>
+                <button class="nt-tb-btn" data-theme-toggle title="Alternar tema claro/escuro">
+                  <i class="fa-solid fa-moon"></i>
+                </button>
                 <button class="nt-tb-btn" data-action="tray" title="Voltar ao modo bandeja">
                   <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
                 </button>
@@ -217,6 +289,9 @@
                     <i class="fa-solid fa-chevron-left"></i> <span id="nt-back-label">Notas</span>
                   </button>
                   <div class="nt-nav-actions">
+                    <button class="nt-icon-btn" data-action="more" title="Importar / exportar Markdown">
+                      <i class="fa-solid fa-ellipsis"></i>
+                    </button>
                     <button class="nt-icon-btn" data-action="pin" title="Fixar nota">
                       <i class="fa-solid fa-thumbtack"></i>
                     </button>
@@ -289,6 +364,7 @@
 
             <!-- Menu de contexto (notas e pastas) -->
             <div id="nt-menu" class="nt-menu" hidden></div>
+            <div id="nt-toast" class="hx-toast" hidden></div>
           </div>
         </div>
 
@@ -298,11 +374,7 @@
             <!-- Desktop: barra de ferramentas unificada -->
             <header class="nt-toolbar desktop-only" data-tauri-drag-region>
               <div class="nt-tb-sidebar" data-tauri-drag-region>
-                <div class="app-switch">
-                  <button data-switch-view="notes" title="Notas"><i class="fa-solid fa-note-sticky"></i></button>
-                  <button data-switch-view="http" title="HTTP"><i class="fa-solid fa-paper-plane"></i></button>
-                  <button data-switch-view="json" title="Formatter JSON"><i class="fa-solid fa-code"></i></button>
-                </div>
+                <div class="app-switch"></div>
                 <button class="nt-tb-btn" data-action="toggle-sidebar" title="Mostrar/ocultar coleções">
                   <i class="fa-solid fa-table-columns"></i>
                 </button>
@@ -327,6 +399,9 @@
                   <button class="nt-tb-btn" data-action="code" title="Gerar código"><i class="fa-solid fa-code"></i></button>
                 </div>
                 <div class="nt-tb-spacer" data-tauri-drag-region></div>
+                <button class="nt-tb-btn" data-theme-toggle title="Alternar tema claro/escuro">
+                  <i class="fa-solid fa-moon"></i>
+                </button>
                 <button class="nt-tb-btn" data-action="tray" title="Voltar ao modo bandeja">
                   <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
                 </button>
@@ -486,16 +561,15 @@
             <!-- Desktop: barra de ferramentas unificada -->
             <header class="nt-toolbar desktop-only" data-tauri-drag-region>
               <div class="nt-tb-editor jf-toolbar" data-tauri-drag-region>
-                <div class="app-switch">
-                  <button data-switch-view="notes" title="Notas"><i class="fa-solid fa-note-sticky"></i></button>
-                  <button data-switch-view="http" title="HTTP"><i class="fa-solid fa-paper-plane"></i></button>
-                  <button data-switch-view="json" title="Formatter JSON"><i class="fa-solid fa-code"></i></button>
-                </div>
+                <div class="app-switch"></div>
                 <div class="nt-tb-title" data-tauri-drag-region>
                   <strong>Formatter JSON</strong>
                   <span>Minificado, escapado, truncado ou quebrado — vira JSON limpo</span>
                 </div>
                 <div class="nt-tb-spacer" data-tauri-drag-region></div>
+                <button class="nt-tb-btn" data-theme-toggle title="Alternar tema claro/escuro">
+                  <i class="fa-solid fa-moon"></i>
+                </button>
                 <button class="nt-tb-btn" data-action="tray" title="Voltar ao modo bandeja">
                   <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
                 </button>
@@ -546,14 +620,7 @@
                 </button>
               </div>
 
-              <div id="jf-editor" class="jf-editor">
-                <div class="jf-gutter" aria-hidden="true"><pre id="jf-gutter"></pre></div>
-                <div class="jf-code">
-                  <pre id="jf-hl" class="jf-hl" aria-hidden="true"></pre>
-                  <textarea id="jf-input" class="jf-input" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-                    placeholder="Cole aqui qualquer JSON:&#10;• minificado ou já formatado&#10;• escapado ({\&quot;a\&quot;:1}) ou string dentro de string&#10;• com aspas simples, comentários, vírgulas sobrando&#10;• truncado, com acentos quebrados (Ã©), Base64, JWT...&#10;&#10;Ctrl+Enter formata."></textarea>
-                </div>
-              </div>
+              <div id="jf-editor" class="jf-editor"></div>
 
               <div id="jf-diag" class="jf-diag" hidden></div>
 
@@ -569,6 +636,103 @@
           </div>
         </div>
 
+        <!-- VIEW: BANCO DE DADOS (cliente estilo DataGrip) -->
+        <div id="view-db" class="view-panel" hidden>
+          <div id="db-app" class="notes-app db-app">
+            <!-- Desktop: barra de ferramentas unificada -->
+            <header class="nt-toolbar desktop-only" data-tauri-drag-region>
+              <div class="nt-tb-editor db-toolbar" data-tauri-drag-region>
+                <div class="app-switch"></div>
+                <button class="nt-tb-btn" data-action="toggle-explorer" title="Mostrar/ocultar Database Explorer">
+                  <i class="fa-solid fa-table-columns"></i>
+                </button>
+                <div class="nt-tb-title" data-tauri-drag-region>
+                  <strong id="db-tb-title">Banco de Dados</strong>
+                  <span id="db-tb-sub">SQL Server · Azure SQL</span>
+                </div>
+                <div class="nt-tb-group">
+                  <button class="nt-tb-btn" data-action="new-connection" title="Nova conexão"><i class="fa-solid fa-plus"></i></button>
+                  <button class="nt-tb-btn" data-action="new-console" title="Novo console SQL (Ctrl+Shift+Q)"><i class="fa-solid fa-terminal"></i></button>
+                  <button class="nt-tb-btn" data-action="toggle-log" title="Mostrar/ocultar log de consultas"><i class="fa-solid fa-list-ul"></i></button>
+                </div>
+                <div class="nt-tb-spacer" data-tauri-drag-region></div>
+                <button class="nt-tb-btn" data-theme-toggle title="Alternar tema claro/escuro">
+                  <i class="fa-solid fa-moon"></i>
+                </button>
+                <button class="nt-tb-btn" data-action="tray" title="Voltar ao modo bandeja">
+                  <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+                </button>
+                <div class="win-caption">
+                  <button class="win-btn" data-action="minimize" title="Minimizar">
+                    <svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg>
+                  </button>
+                  <button class="win-btn" data-action="maximize" title="Maximizar / Restaurar">
+                    <svg class="ic-max" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg>
+                    <svg class="ic-restore" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" rx="1" /><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" /></svg>
+                  </button>
+                  <button class="win-btn win-close" data-action="close-desktop" title="Fechar (volta para a bandeja)">
+                    <svg viewBox="0 0 10 10"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg>
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <!-- Desktop: Explorer | abas (tabelas/consoles) + log -->
+            <div class="db-body desktop-only">
+              <aside class="db-explorer">
+                <div class="db-pane-head">
+                  <span>Database Explorer</span>
+                  <span class="hx-flex"></span>
+                  <button class="hx-icon-btn" data-action="new-connection" title="Nova conexão"><i class="fa-solid fa-plus"></i></button>
+                  <button class="hx-icon-btn" data-action="refresh-node" title="Atualizar (F5)"><i class="fa-solid fa-rotate"></i></button>
+                  <button class="hx-icon-btn" data-action="collapse-all" title="Recolher tudo"><i class="fa-solid fa-angles-up"></i></button>
+                </div>
+                <label class="db-search">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input id="db-tree-search" type="search" placeholder="Filtrar objetos carregados" autocomplete="off" spellcheck="false" />
+                </label>
+                <div id="db-tree" class="db-tree" tabindex="0"></div>
+              </aside>
+              <div class="db-split-v" data-split="explorer" title="Arraste para redimensionar"></div>
+              <main class="db-main">
+                <div id="db-tabs" class="db-tabs"></div>
+                <div id="db-tab-body" class="db-tab-body"></div>
+                <div class="db-split-h" data-split="log" title="Arraste para redimensionar"></div>
+                <section id="db-log" class="db-log">
+                  <div class="db-pane-head">
+                    <i class="fa-solid fa-list-ul"></i><span>Log de consultas</span>
+                    <span class="hx-flex"></span>
+                    <button class="hx-icon-btn" data-action="clear-log" title="Limpar"><i class="fa-regular fa-trash-can"></i></button>
+                    <button class="hx-icon-btn" data-action="toggle-log" title="Ocultar"><i class="fa-solid fa-chevron-down"></i></button>
+                  </div>
+                  <div id="db-log-list" class="db-log-list"></div>
+                </section>
+              </main>
+            </div>
+
+            <!-- Bandeja: só a lista de conexões -->
+            <div class="db-compact compact-only">
+              <div class="nt-nav">
+                <h2 class="nt-large-title">Banco</h2>
+                <div class="nt-nav-actions">
+                  <button class="nt-icon-btn" data-action="new-connection" title="Nova conexão">
+                    <i class="fa-solid fa-plus"></i>
+                  </button>
+                  <button class="nt-icon-btn" data-action="desktop" title="Abrir no modo desktop">
+                    <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+                  </button>
+                </div>
+              </div>
+              <div id="db-compact-list" class="db-compact-list"></div>
+              <p class="db-compact-hint">O cliente completo (Explorer, grid e console) abre no modo desktop.</p>
+            </div>
+
+            <div id="db-menu" class="nt-menu" hidden></div>
+            <div id="db-modal" class="hx-modal-overlay" hidden></div>
+            <div id="db-toast" class="hx-toast" hidden></div>
+          </div>
+        </div>
+
         <!-- VIEW 5: SETTINGS -->
         <div id="view-settings" class="view-panel" hidden>
           <header class="app-header">
@@ -580,6 +744,18 @@
           </header>
 
           <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-title">Tema</span>
+                <span class="setting-desc">Aparência de todo o app.</span>
+              </div>
+              <div id="setting-theme" class="theme-seg">
+                <button type="button" data-theme-pref="system" title="Seguir o sistema"><i class="fa-solid fa-circle-half-stroke"></i></button>
+                <button type="button" data-theme-pref="light" title="Claro"><i class="fa-solid fa-sun"></i></button>
+                <button type="button" data-theme-pref="dark" title="Escuro"><i class="fa-solid fa-moon"></i></button>
+              </div>
+            </div>
+
             <div class="setting-item">
               <div class="setting-info">
                 <span class="setting-title">Iniciar com o sistema</span>
@@ -618,6 +794,9 @@
         </button>
         <button class="bottom-tab" data-view="json" title="Formatter JSON">
           <i class="fa-solid fa-code"></i>
+        </button>
+        <button class="bottom-tab" data-view="db" title="Banco de dados">
+          <i class="fa-solid fa-database"></i>
         </button>
         <button class="bottom-tab" data-view="settings" title="Configurações">
           <i class="fa-solid fa-gear"></i>

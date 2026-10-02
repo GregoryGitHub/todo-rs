@@ -76,3 +76,39 @@ export function noteGroupLabel(ts) {
   }
   return String(d.getFullYear());
 }
+
+/** "YYYY-MM-DD" → Date local (meia-noite). */
+export function parseDateStr(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Soma `n` dias a uma data "YYYY-MM-DD". */
+export function addDays(dateStr, n) {
+  const d = parseDateStr(dateStr);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+}
+
+/** "Hoje", "Amanhã", "Ontem" ou "sex., 10 de out." (com ano se não for o atual). */
+export function formatDayLabel(dateStr) {
+  const today = getTodayStr();
+  if (dateStr === today) return "Hoje";
+  if (dateStr === addDays(today, 1)) return "Amanhã";
+  if (dateStr === addDays(today, -1)) return "Ontem";
+  const d = parseDateStr(dateStr);
+  const opts = { weekday: "short", day: "numeric", month: "short" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  const label = d.toLocaleDateString("pt-BR", opts);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** "quinta-feira, 2 de outubro" */
+export function formatLongDate(dateStr) {
+  const label = parseDateStr(dateStr).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
