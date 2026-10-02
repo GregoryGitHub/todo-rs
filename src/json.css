@@ -1,0 +1,485 @@
+/* =========================================================================
+   Formatter JSON — um único campo (textarea + camada de realce por baixo).
+   Reaproveita o visual das Notas (.notes-app / .nt-*) nos dois modos.
+   ========================================================================= */
+
+.json-app {
+  --nt-yellow: #a78bfa;
+  --nt-yellow-soft: rgba(167, 139, 250, 0.14);
+  --jf-accent: #a78bfa;
+  --jf-accent-hover: #b9a4fc;
+  --jf-ok: #4ade80;
+  --jf-info: #60a5fa;
+  --jf-warn: #fbbf24;
+  --jf-bad: #f87171;
+  --jf-font-size: 12.5px;
+  --jf-line: 20px;
+  --jf-pad-y: 12px;
+  --jf-pad-x: 14px;
+}
+
+body.desktop-mode #view-json {
+  gap: 0;
+}
+
+.json-app [hidden] {
+  display: none !important;
+}
+
+.jf-toolbar {
+  gap: 14px;
+  padding-left: 14px;
+  border-left: none;
+}
+
+.jf-toolbar .app-switch {
+  margin-right: 0;
+}
+
+.jf-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.desktop-mode .jf-body {
+  padding: 14px 18px 10px;
+  gap: 10px;
+}
+
+.jf-title {
+  margin-bottom: 0;
+}
+
+/* ---------- Actions ---------- */
+
+.jf-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.jf-flex {
+  flex: 1;
+}
+
+.jf-format,
+.jf-btn,
+.jf-icon {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.jf-format {
+  padding: 0 14px;
+  border: none;
+  background: var(--jf-accent);
+  color: #1d1433 !important;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(167, 139, 250, 0.25);
+}
+
+.jf-format:hover {
+  background: var(--jf-accent-hover);
+}
+
+.jf-format:active,
+.jf-btn:active,
+.jf-icon:active {
+  transform: scale(0.97);
+}
+
+.jf-btn {
+  padding: 0 11px;
+  border: 1px solid var(--nt-sep-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--nt-text) !important;
+}
+
+.jf-btn i {
+  color: var(--jf-accent);
+  font-size: 11.5px;
+}
+
+.jf-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.jf-icon {
+  width: 32px;
+  border: none;
+  background: none;
+  color: var(--nt-text-2) !important;
+  font-size: 13px;
+}
+
+.jf-icon:hover,
+.jf-icon.active {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--nt-text) !important;
+}
+
+body:not(.desktop-mode) .jf-btn {
+  padding: 0 9px;
+}
+
+/* ---------- Editor ---------- */
+
+.jf-editor {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.jf-editor:focus-within {
+  border-color: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.08);
+}
+
+.jf-gutter,
+.jf-hl,
+.jf-input {
+  font-family: var(--nt-mono) !important;
+  font-size: var(--jf-font-size);
+  line-height: var(--jf-line);
+  letter-spacing: 0;
+  tab-size: 4;
+  font-variant-ligatures: none;
+}
+
+.jf-gutter {
+  flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  border-right: 1px solid var(--nt-sep);
+}
+
+.jf-gutter pre {
+  margin: 0;
+  min-width: calc(var(--jf-gutter-ch, 2) * 1ch + 20px);
+  padding: var(--jf-pad-y) 9px var(--jf-pad-y) 11px;
+  font: inherit;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.24);
+  will-change: transform;
+}
+
+.jf-editor.empty .jf-gutter {
+  display: none;
+}
+
+.jf-code {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.jf-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 100%;
+  margin: 0;
+  padding: var(--jf-pad-y) var(--jf-pad-x);
+  white-space: pre;
+  color: var(--nt-text-2);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.jf-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: var(--jf-pad-y) var(--jf-pad-x);
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--nt-text);
+  white-space: pre;
+  overflow: auto;
+  overflow-wrap: normal;
+  user-select: text;
+}
+
+.jf-input::selection {
+  background: rgba(167, 139, 250, 0.32);
+}
+
+.jf-input::placeholder {
+  color: rgba(255, 255, 255, 0.28);
+  font-family: var(--nt-font);
+  font-size: 12.5px;
+}
+
+.jf-editor.plain .jf-hl {
+  display: none;
+}
+
+.jf-editor.plain .jf-input {
+  color: var(--nt-text-2);
+}
+
+.jf-input::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.jf-input::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16) padding-box;
+}
+
+.jf-input::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- Diagnóstico ---------- */
+
+.jf-diag {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 112px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--nt-sep);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  animation: ntPop 0.15s ease;
+}
+
+body.desktop-mode .jf-diag {
+  max-height: 190px;
+}
+
+.jf-step {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--nt-text-2);
+  user-select: text;
+}
+
+.jf-step:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.jf-step i {
+  width: 13px;
+  flex-shrink: 0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.jf-step span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+
+.jf-step.kind-info i { color: var(--jf-info); }
+.jf-step.kind-fix i { color: var(--jf-accent); }
+.jf-step.kind-warn i { color: var(--jf-warn); }
+.jf-step.kind-bad i,
+.jf-step.kind-bad { color: var(--jf-bad); }
+
+.jf-step-count {
+  flex-shrink: 0;
+  font-family: var(--nt-mono);
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+/* ---------- Status bar ---------- */
+
+.jf-status {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 11px;
+  color: var(--nt-muted);
+  white-space: nowrap;
+}
+
+.jf-info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jf-cursor {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.jf-badge {
+  --tone: var(--nt-muted);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 13%, transparent);
+  color: var(--tone) !important;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.jf-badge:disabled {
+  opacity: 1 !important;
+  cursor: default;
+}
+
+.jf-badge:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tone) 22%, transparent);
+}
+
+.jf-badge.tone-ok { --tone: var(--jf-ok); }
+.jf-badge.tone-info { --tone: var(--jf-info); }
+.jf-badge.tone-warn { --tone: var(--jf-warn); }
+.jf-badge.tone-bad { --tone: var(--jf-bad); }
+
+.jf-badge-count {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.jf-badge-caret {
+  font-size: 8px;
+  transition: transform 0.15s ease;
+}
+
+.jf-badge.open .jf-badge-caret {
+  transform: rotate(180deg);
+}
+
+/* ---------- Opções (popover) ---------- */
+
+.jf-pop {
+  position: absolute;
+  z-index: 60;
+  width: 270px;
+  max-width: calc(100% - 16px);
+  padding: 10px;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 12px;
+  background: var(--nt-menu-bg);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(18px);
+  animation: ntPop 0.12s ease;
+}
+
+.jf-pop-label {
+  margin: 0 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--nt-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.jf-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.jf-seg button {
+  flex: 1;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--nt-text-2) !important;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.jf-seg button.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--nt-text) !important;
+  font-weight: 600;
+}
+
+.jf-pop-sep {
+  height: 1px;
+  margin: 10px 0 4px;
+  background: var(--nt-sep);
+}
+
+.jf-pop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  cursor: pointer;
+}
+
+.jf-pop-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.jf-pop-text small {
+  font-size: 11px;
+  color: var(--nt-muted);
+}
+
+.jf-toggle {
+  width: 34px;
+  height: 20px;
+}
+
+.jf-toggle .slider:before {
+  width: 14px;
+  height: 14px;
+}
+
+.jf-toggle input:checked + .slider {
+  background-color: var(--jf-accent);
+}
+
+.jf-toggle input:checked + .slider:before {
+  transform: translateX(14px);
+}

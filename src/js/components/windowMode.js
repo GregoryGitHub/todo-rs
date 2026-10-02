@@ -2,7 +2,7 @@ import { state } from "../state.js";
 import { setDesktopModeApi, minimizeWindowApi, toggleMaximizeApi } from "../api.js";
 import { showMainView } from "../navigation.js";
 
-// Tray mode (compact window by the tray) <-> desktop mode (large Notes window).
+// Tray mode (compact window by the tray) <-> desktop mode (large Notes/HTTP/JSON window).
 
 function notifyChange() {
   document.dispatchEvent(new CustomEvent("windowmodechange", { detail: { desktop: state.desktopMode } }));
@@ -16,11 +16,12 @@ function updateMaximizedClass() {
   document.body.classList.toggle("maximized", maximized);
 }
 
+/** Opens the large window on the current view (Notes, HTTP or JSON). */
 export async function enterDesktopMode() {
   if (state.desktopMode) return;
   state.desktopMode = true;
   document.body.classList.add("desktop-mode");
-  showMainView("notes");
+  showMainView(["http", "json"].includes(state.activeMainView) ? state.activeMainView : "notes");
   notifyChange();
   await setDesktopModeApi(true, true);
 }
@@ -45,4 +46,13 @@ export async function toggleMaximize() {
 
 export function initWindowMode() {
   window.addEventListener("resize", updateMaximizedClass);
+
+  // Desktop toolbar switcher between Notes, HTTP and JSON.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-switch-view]");
+    if (btn && btn.dataset.switchView !== state.activeMainView) showMainView(btn.dataset.switchView);
+  });
+  document.addEventListener("mainviewchange", () => {
+    document.querySelectorAll("[data-switch-view]").forEach((b) => b.classList.toggle("active", b.dataset.switchView === state.activeMainView));
+  });
 }

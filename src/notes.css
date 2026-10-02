@@ -902,6 +902,8 @@ body:not(.desktop-mode) .nt-editor-pane {
   display: none;
   flex-direction: column;
   gap: 6px;
+  /* Room for the search field's focus ring, which would be clipped at the edges. */
+  padding: 3px 3px 0;
   animation: ntSlideIn 0.18s ease;
 }
 
@@ -1171,7 +1173,7 @@ body.desktop-mode #view-notes {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 10px 0 16px;
   background: var(--nt-sidebar);
 }
@@ -1261,40 +1263,61 @@ body.desktop-mode #view-notes {
   background: rgba(118, 118, 128, 0.2);
 }
 
-/* Traffic lights */
-.traffic-lights {
+/* Window caption buttons (Windows-style) */
+.win-caption {
   display: flex;
-  gap: 8px;
+  align-self: stretch;
+  margin-left: 6px;
+  margin-right: -12px;
 }
 
-.tl {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: none;
-  padding: 0;
+.win-btn {
+  width: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: none;
+  border: none;
   cursor: pointer;
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+  color: var(--nt-text-2) !important;
+  transition: background 0.1s ease, color 0.1s ease;
 }
 
-.tl i {
-  font-size: 7.5px;
-  color: rgba(0, 0, 0, 0.6);
-  opacity: 0;
-  transition: opacity 0.1s ease;
+.win-btn svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  shape-rendering: geometricPrecision;
 }
 
-.traffic-lights:hover .tl i {
-  opacity: 1;
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--nt-text) !important;
 }
 
-.tl-close { background: #ff5f57; }
-.tl-min { background: #febc2e; }
-.tl-max { background: #28c840; }
-.tl-max i { font-size: 6.5px; transform: rotate(90deg); }
+.win-btn:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.win-close:hover {
+  background: #c42b1c;
+  color: #fff !important;
+}
+
+.win-close:active {
+  background: #b22a1b;
+}
+
+.win-btn .ic-restore,
+body.maximized .win-btn .ic-max {
+  display: none;
+}
+
+body.maximized .win-btn .ic-restore {
+  display: block;
+}
 
 /* Sidebar hidden */
 .notes-app.sidebar-hidden .nt-sidebar {
@@ -1303,7 +1326,7 @@ body.desktop-mode #view-notes {
 
 .notes-app.sidebar-hidden .nt-tb-sidebar {
   width: auto;
-  gap: 14px;
+  padding: 0 4px 0 10px;
   background: transparent;
 }
 

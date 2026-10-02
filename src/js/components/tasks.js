@@ -19,6 +19,47 @@ const FA_CALENDAR = `<i class="fa-regular fa-calendar"></i>`;
 const FA_TRASH = `<i class="fa-solid fa-trash-can"></i>`;
 const FA_CLOCK = `<i class="fa-regular fa-clock"></i>`;
 const FA_STOPWATCH = `<i class="fa-solid fa-stopwatch"></i>`;
+const FA_PEN = `<i class="fa-solid fa-pen"></i>`;
+
+/** Swaps the task text for an inline input. Enter/blur saves, Escape cancels. */
+function startEditing(todo, li, textSpan) {
+  if (li.classList.contains("editing")) return;
+  li.classList.add("editing");
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "edit-input";
+  input.value = todo.text;
+  input.maxLength = 200;
+  input.setAttribute("aria-label", "Editar tarefa");
+  textSpan.replaceWith(input);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  let finished = false;
+  const finish = (save) => {
+    if (finished) return;
+    finished = true;
+    const text = input.value.trim();
+    if (save && text && text !== todo.text) {
+      todo.text = text;
+      saveTodosApi(state.todos);
+    }
+    renderTasks();
+  };
+
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
 
 export function getFilteredTodos() {
   const today = getTodayStr();
@@ -74,6 +115,8 @@ function createTodoItemElement(todo, today) {
   textSpan.textContent = todo.text;
 
   contentDiv.appendChild(textSpan);
+  textSpan.title = "Clique duas vezes para editar";
+  textSpan.addEventListener("dblclick", () => startEditing(todo, li, textSpan));
 
   // Date badge
   if (todo.date && todo.date !== today) {
@@ -103,6 +146,16 @@ function createTodoItemElement(todo, today) {
   const actionsDiv = document.createElement("div");
   actionsDiv.className = "item-actions";
 
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "btn-icon btn-edit";
+  editBtn.title = "Editar tarefa";
+  editBtn.setAttribute("aria-label", "Editar");
+  editBtn.innerHTML = FA_PEN;
+  // mousedown would blur an input being edited before the click lands.
+  editBtn.addEventListener("mousedown", (e) => e.preventDefault());
+  editBtn.addEventListener("click", () => startEditing(todo, li, textSpan));
+
   if (!todo.done) {
     // Pomodoro clock button (only for pending tasks)
     const pomoBtn = document.createElement("button");
@@ -115,9 +168,9 @@ function createTodoItemElement(todo, today) {
       openPomodoroModal(todo);
     });
 
-    actionsDiv.append(pomoBtn, delBtn);
+    actionsDiv.append(editBtn, pomoBtn, delBtn);
   } else {
-    actionsDiv.append(delBtn);
+    actionsDiv.append(editBtn, delBtn);
   }
 
   li.append(checkBtn, contentDiv, actionsDiv);

@@ -1,9 +1,11 @@
 import { state } from "./js/state.js";
 import { getTodayStr } from "./js/utils/date.js";
-import { loadTodosApi, loadNotesApi, loadFoldersApi, loadSettingsApi, saveNotesApi } from "./js/api.js";
+import { loadTodosApi, loadNotesApi, loadFoldersApi, loadSettingsApi, saveNotesApi, loadHttpDataApi } from "./js/api.js";
 import { normalizeNote, purgeExpiredTrash } from "./js/utils/noteContent.js";
 import { initTasks, renderTasks } from "./js/components/tasks.js";
 import { initNotes, renderNotes } from "./js/components/notes.js";
+import { initHttp, setHttpData } from "./js/components/http.js";
+import { initJsonFormatter } from "./js/components/jsonFormatter.js";
 import { initPomodoro, setPomodoroRenderCallback } from "./js/components/pomodoro.js";
 import { initSettings, updateSettingsUI } from "./js/components/settings.js";
 import { initWindowControls } from "./js/components/windowControls.js";
@@ -32,6 +34,13 @@ async function load() {
   updateSettingsUI();
   renderTasks();
   renderNotes();
+
+  try {
+    setHttpData(await loadHttpDataApi());
+  } catch (e) {
+    console.error("http load failed", e);
+    setHttpData({});
+  }
 }
 
 function initGlobalShortcutListeners() {
@@ -59,6 +68,8 @@ function initGlobalShortcutListeners() {
 function main() {
   initTasks();
   initNotes();
+  initHttp();
+  initJsonFormatter();
   initPomodoro();
   setPomodoroRenderCallback(renderTasks);
   initSettings();

@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod http;
+
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -431,7 +433,10 @@ fn main() {
         }
     }
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(DesktopMode::default())
+        .manage(http::HttpInflight::default())
+        .manage(http::HttpCookies::default())
         .invoke_handler(tauri::generate_handler![
             load_todos,
             save_todos,
@@ -445,7 +450,14 @@ fn main() {
             exit_app,
             set_desktop_mode,
             minimize_window,
-            toggle_maximize
+            toggle_maximize,
+            http::send_http_request,
+            http::cancel_http_request,
+            http::clear_http_cookies,
+            http::load_http_data,
+            http::save_http_data,
+            http::read_text_file,
+            http::write_file
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

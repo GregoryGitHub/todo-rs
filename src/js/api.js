@@ -96,3 +96,63 @@ export async function toggleMaximizeApi() {
     return false;
   }
 }
+
+// ---------- HTTP (aba estilo Postman) ----------
+
+export async function loadHttpDataApi() {
+  try {
+    return await invoke("load_http_data");
+  } catch (e) {
+    console.error("load_http_data failed", e);
+    return null;
+  }
+}
+
+export async function saveHttpDataApi(data) {
+  try {
+    await invoke("save_http_data", { data });
+  } catch (e) {
+    console.error("save_http_data failed", e);
+  }
+}
+
+/** Executes the request in Rust (no CORS). Rejects with a readable message string. */
+export async function sendHttpRequestApi(request) {
+  if (!window.__TAURI__?.core) throw "Disponível apenas no aplicativo desktop.";
+  return invoke("send_http_request", { request });
+}
+
+export function cancelHttpRequestApi(id) {
+  invoke("cancel_http_request", { id }).catch(() => {});
+}
+
+export function clearHttpCookiesApi() {
+  return invoke("clear_http_cookies").catch(() => {});
+}
+
+export async function openFileDialogApi({ filters, title } = {}) {
+  try {
+    const path = await invoke("plugin:dialog|open", { options: { multiple: false, directory: false, filters, title } });
+    return Array.isArray(path) ? path[0] ?? null : path ?? null;
+  } catch (e) {
+    console.error("open dialog failed", e);
+    return null;
+  }
+}
+
+export async function saveFileDialogApi({ defaultPath, filters, title } = {}) {
+  try {
+    return (await invoke("plugin:dialog|save", { options: { defaultPath, filters, title } })) ?? null;
+  } catch (e) {
+    console.error("save dialog failed", e);
+    return null;
+  }
+}
+
+export function readTextFileApi(path) {
+  return invoke("read_text_file", { path });
+}
+
+export function writeFileApi(path, { text = null, base64 = null } = {}) {
+  return invoke("write_file", { path, text, base64 });
+}

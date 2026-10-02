@@ -577,6 +577,38 @@ body {
   animation: pulse 1.5s infinite;
 }
 
+.item .btn-edit {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.item:hover .btn-edit,
+.item .btn-edit:focus-visible {
+  opacity: 1;
+}
+
+.item.editing {
+  border-color: var(--accent);
+  background: rgba(63, 63, 70, 0.6);
+}
+
+.item.editing .btn-edit {
+  display: none;
+}
+
+.edit-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 0;
+  user-select: text;
+}
+
 .btn-icon.del:hover i {
   color: var(--danger);
 }

@@ -3,6 +3,8 @@ import { state } from "./state.js";
 const PANELS = {
   tasks: document.getElementById("view-tasks"),
   notes: document.getElementById("view-notes"),
+  http: document.getElementById("view-http"),
+  json: document.getElementById("view-json"),
   settings: document.getElementById("view-settings"),
 };
 

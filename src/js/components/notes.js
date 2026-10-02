@@ -633,6 +633,20 @@ function showFolderMenu(x, y, entry) {
   showMenu(x, y, items);
 }
 
+/** Tray mode always opens on the "Todas as Notas" list. */
+function openCompactHome() {
+  discardIfEmpty(ui.selectedId);
+  flushNotesSave();
+  ui.scope = "all";
+  ui.query = "";
+  searchInputs.forEach((i) => (i.value = ""));
+  ui.selectedId = null;
+  ui.pane = "list";
+  renderNotes();
+  loadSelectedIntoEditor();
+  listEl.scrollTop = 0;
+}
+
 // ---------- Event wiring ----------
 
 const ACTIONS = {
@@ -759,8 +773,13 @@ export function initNotes() {
   listEl.addEventListener("scroll", closeMenu);
 
   document.addEventListener("mainviewchange", () => {
-    if (state.activeMainView !== "notes") closePopover();
-    renderChrome();
+    if (state.activeMainView !== "notes") {
+      closePopover();
+      renderChrome();
+      return;
+    }
+    if (!state.desktopMode) openCompactHome();
+    else renderChrome();
   });
 
   document.addEventListener("windowmodechange", () => {
@@ -772,11 +791,11 @@ export function initNotes() {
         const first = visibleNotes()[0];
         if (first) ui.selectedId = first.id;
       }
+      renderNotes();
+      loadSelectedIntoEditor();
     } else {
-      ui.pane = selectedNote() ? "editor" : "list";
+      openCompactHome();
     }
-    renderNotes();
-    loadSelectedIntoEditor();
   });
 
   window.addEventListener("beforeunload", () => {
