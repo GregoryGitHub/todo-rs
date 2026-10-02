@@ -1,15 +1,16 @@
 import { el, icon } from "../utils/dom.js";
-import { uid, target } from "../utils/dbModel.js";
-import { splitBatches, statementAt, isReadOnlyQuery, isWriteStatement } from "../utils/sqlSplit.js";
+import { uid, target, affectedText } from "../utils/dbModel.js";
+import { createDocState, docsToRows, cellEditText } from "../utils/mongoValue.js";
 import { codeEditor } from "./codeEditor.js";
 import { createDataGrid } from "./dataGrid.js";
 import { dbConfirm } from "./dbDialogs.js";
 import { createResultFooter, copyAsItems, exportMenuItems, txControls } from "./dbShared.js";
-import { attachSqlComplete } from "./sqlComplete.js";
+import { languageFor } from "./dbLanguages.js";
 import { dbApi } from "../api.js";
 
-// Console SQL: Ctrl+Enter executa a seleção ou o comando sob o cursor; Ctrl+Shift+Enter executa
-// o script inteiro (lotes separados por GO). Cada result set vira uma aba com um DataGrid.
+// Console: Ctrl+Enter executa a seleção ou o comando sob o cursor; Ctrl+Shift+Enter executa
+// o script inteiro. Cada result set vira uma aba com um DataGrid. O que muda entre SQL e
+// MongoDB (divisão do script, linguagem do editor, autocomplete) vem de dbLanguages.js.
 
 const LIMITS = [100, 500, 1000, 5000, 0];
 const time = () => new Date().toLocaleTimeString("pt-BR");
@@ -23,6 +24,7 @@ export function createConsoleTab(ctx, tab, doc) {
   const dialect = () => ctx.dialect(conn());
   const sessionId = `console:${doc.id}`;
   const tgt = () => target(conn(), sessionId, doc.database);
+  const lang = languageFor(conn());
 
   let running = null; // queryId
   let cancelled = false;
@@ -38,17 +40,17 @@ export function createConsoleTab(ctx, tab, doc) {
 
   const editor = codeEditor({
     value: doc.sql,
-    lang: "sql",
+    lang: lang.editorLang,
     fill: true,
-    indent: "    ",
-    placeholder: "SELECT * FROM ...   (Ctrl+Enter executa o comando sob o cursor)",
+    indent: lang.indent,
+    placeholder: lang.placeholder,
     onInput: (v) => {
       doc.sql = v;
       ctx.saveDataSoon();
     },
     skipKey: (e) => complete?.isOpen(),
   });
-  const complete = attachSqlComplete(editor, {
+  const complete = lang.attachComplete(editor, {
     getSource: () => ctx.completions(conn(), doc.database),
     dialect,
   });
@@ -73,7 +75,9 @@ export function createConsoleTab(ctx, tab, doc) {
     ...LIMITS.map((n) => el("option", { value: n, selected: n === limit }, n ? `Limite: ${n.toLocaleString("pt-BR")}` : "Sem limite")),
   );
   const tx = txControls({ getMode: () => txMode, setMode: (m) => (txMode = m), getCount: () => tranCount, run: runTx });
-  const toolbar = el("div.dbt-toolbar", {}, runBtn, runAllBtn, cancelBtn, el("span.dbt-sep"), dbBtn, el("span.dbt-sep"), tx.root, el("span.dbt-sep"), limitSel, el("span.hx-flex"));
+  const txSep = el("span.dbt-sep");
+  if (!lang.supportsTx) tx.root.hidden = txSep.hidden = true;
+  const toolbar = el("div.dbt-toolbar", {}, runBtn, runAllBtn, cancelBtn, el("span.dbt-sep"), dbBtn, txSep, tx.root, el("span.dbt-sep"), limitSel, el("span.hx-flex"));
 
   // ---------- Resultados ----------
 
@@ -164,11 +168,12 @@ export function createConsoleTab(ctx, tab, doc) {
       onStatus: (s) => footer.setSelection(s),
       onError: (m) => ctx.toast(m),
       onCopied: (n) => n > 1 && ctx.toast(`${n.toLocaleString("pt-BR")} células copiadas`),
-      copyAsItems: (m) => copyAsItems(ctx, dialect(), m, null),
+      copyAsItems: (m) => copyAsItems(ctx, dialect(), m, null, { mongo: lang.id === "mongo" }),
+      editText: lang.id === "mongo" ? (v, col, row, o) => cellEditText(v, col, o.expanded) : undefined,
     });
     const exportBtn = el(
       "button.dbt-btn",
-      { type: "button", title: "Exportar resultado", onclick: (e) => ctx.showMenuBelow(e.currentTarget, exportMenuItems(ctx, dialect(), r.grid, null, { baseName: `resultado-${results.indexOf(r) + 1}` })) },
+      { type: "button", title: "Exportar resultado", onclick: (e) => ctx.showMenuBelow(e.currentTarget, exportMenuItems(ctx, dialect(), r.grid, null, { baseName: `resultado-${results.indexOf(r) + 1}`, mongo: lang.id === "mongo", docs: () => r.docState?.docs })) },
       icon("fa-solid fa-file-export"),
     );
     const recordBtn = el(
@@ -184,7 +189,7 @@ export function createConsoleTab(ctx, tab, doc) {
       icon("fa-solid fa-table-list"),
     );
     const findBtn = el("button.dbt-btn", { type: "button", title: "Buscar (Ctrl+F)", onclick: () => r.grid.openFind() }, icon("fa-solid fa-magnifying-glass"));
-    r.moreBtn = el("button.dbc-more", { type: "button", hidden: true, onclick: () => fetchAll(r) }, icon("fa-solid fa-angles-down"), "Buscar todas as linhas");
+    r.moreBtn = el("button.dbc-more", { type: "button", hidden: true, onclick: () => fetchAll(r) }, icon("fa-solid fa-angles-down"), lang.id === "mongo" ? "Buscar todos os documentos" : "Buscar todas as linhas");
     r.root = el("div.dbc-result", {}, el("div.dbc-rtools", {}, findBtn, recordBtn, exportBtn, el("span.hx-flex"), r.moreBtn), el("div.dbt-grid", {}, r.grid.root), footer.root);
     r.grid.setColumns(columns);
     r.index = index;
@@ -195,12 +200,8 @@ export function createConsoleTab(ctx, tab, doc) {
   // ---------- Execução ----------
 
   function unitsToRun(mode) {
-    const text = editor.value;
     const { selectionStart: s, selectionEnd: e } = editor.input;
-    if (s !== e) return splitBatches(text.slice(s, e));
-    if (mode === "all") return splitBatches(text);
-    const st = statementAt(text, s);
-    return st ? [{ sql: st.sql, repeat: 1, start: st.start, end: st.end }] : [];
+    return lang.units(editor.value, s, e, mode);
   }
 
   async function run(mode) {
@@ -209,7 +210,7 @@ export function createConsoleTab(ctx, tab, doc) {
     if (!c) return ctx.toast("Conexão removida");
     const units = unitsToRun(mode);
     if (!units.length) return ctx.toast("Nada para executar");
-    if (c.read_only && units.some((u) => isWriteStatement(u.sql))) {
+    if (c.read_only && units.some((u) => u.write)) {
       const ok = await dbConfirm({ title: "Conexão somente leitura", message: "O comando parece alterar dados ou estrutura. Executar mesmo assim?", confirmLabel: "Executar", danger: true });
       if (!ok) return;
     }
@@ -242,12 +243,17 @@ export function createConsoleTab(ctx, tab, doc) {
 
   async function execUnit(unit, maxRows, into = null) {
     const c = conn();
+    if (unit.error) {
+      addMessage("error", unit.error, unit.display);
+      return false;
+    }
+    if (unit.local?.use) return switchDatabase(unit.local.use, unit.display);
     const queryId = uid();
     running = queryId;
     const local = new Map(); // índice do result set -> resultado
     const t0 = performance.now();
     try {
-      const summary = await dbApi.execute(tgt(), queryId, unit.sql, {
+      const summary = await dbApi.execute(tgt(), queryId, unit.payload, {
         maxRows,
         onEvent: (ev) => {
           if (ev.type === "result_start") {
@@ -256,6 +262,7 @@ export function createConsoleTab(ctx, tab, doc) {
               r.grid.setColumns(ev.columns, { keepLayout: true });
               r.rows = 0;
             }
+            r.docState = null;
             local.set(ev.index, r);
             if (results.length === 1 || r === into) showResult(results.indexOf(r));
             else renderResultTabs();
@@ -264,29 +271,49 @@ export function createConsoleTab(ctx, tab, doc) {
             r.grid.appendRows(ev.rows);
             r.rows += ev.rows.length;
             renderResultTabs();
+          } else if (ev.type === "docs") {
+            // Documentos: as colunas são os campos de topo, descobertos lote a lote.
+            const r = local.get(ev.index);
+            r.docState ??= createDocState();
+            const { rows, added } = docsToRows(r.docState, ev.docs);
+            if (!r.grid.model.columns.length) r.grid.setColumns([...added]);
+            else r.grid.addColumns(added);
+            r.grid.appendRows(rows);
+            r.rows += rows.length;
+            renderResultTabs();
           } else if (ev.type === "result_end") {
             const r = local.get(ev.index);
             r.truncated = ev.truncated;
             r.moreBtn.hidden = !ev.truncated;
-            r.footer.setInfo(`${r.rows.toLocaleString("pt-BR")} linha(s)${ev.truncated ? ` (limite de ${maxRows.toLocaleString("pt-BR")} atingido)` : ""}`);
-            if (!r.rows) r.grid.setMessage("Nenhuma linha");
+            r.footer.setInfo(`${r.rows.toLocaleString("pt-BR")} ${lang.rowsWord}${ev.truncated ? ` (limite de ${maxRows.toLocaleString("pt-BR")} atingido)` : ""}`);
+            if (!r.rows) r.grid.setMessage(lang.id === "mongo" ? "Nenhum documento" : "Nenhuma linha");
           }
         },
       });
       tranCount = summary.tran_count;
       const parts = [];
-      if (summary.rows_affected !== null && summary.rows_affected !== undefined) parts.push(`${summary.rows_affected.toLocaleString("pt-BR")} linha(s) afetada(s)`);
-      for (const r of local.values()) parts.push(`${r.rows.toLocaleString("pt-BR")} linha(s) retornada(s)${r.truncated ? "+" : ""}`);
+      const affected = summary.rows_affected ?? null;
+      if (affected !== null) parts.push(affectedText(affected));
+      if (!unit.write || lang.id !== "mongo") for (const r of local.values()) parts.push(`${r.rows.toLocaleString("pt-BR")} ${lang.rowsWord} retornado(s)${r.truncated ? "+" : ""}`);
       if (!parts.length) parts.push("Comando executado");
       parts.push(`em ${summary.elapsed_ms} ms`);
-      addMessage("ok", parts.join(" · "), unit.sql);
-      ctx.log({ conn: c, database: doc.database, sql: unit.sql, rows: summary.rows_affected ?? [...local.values()].reduce((a, r) => a + r.rows, 0), ms: summary.elapsed_ms, total: Math.round(performance.now() - t0) });
+      addMessage("ok", parts.join(" · "), unit.display);
+      ctx.log({
+        conn: c,
+        database: doc.database,
+        sql: unit.display,
+        lang: lang.logLang,
+        affected,
+        rows: local.size && !(lang.id === "mongo" && unit.write) ? [...local.values()].reduce((a, r) => a + r.rows, 0) : null,
+        ms: summary.elapsed_ms,
+        total: Math.round(performance.now() - t0),
+      });
       return true;
     } catch (e) {
       const msg = String(e);
       if (msg.includes("sessão foi reaberta")) tranCount = 0;
-      addMessage("error", msg, unit.sql);
-      ctx.log({ conn: c, database: doc.database, sql: unit.sql, error: msg });
+      addMessage("error", msg, unit.display);
+      ctx.log({ conn: c, database: doc.database, sql: unit.display, lang: lang.logLang, error: msg });
       if (msg.includes("ENTRA_LOGIN_REQUIRED")) ctx.requireLogin(c);
       return false;
     } finally {
@@ -297,8 +324,8 @@ export function createConsoleTab(ctx, tab, doc) {
 
   async function fetchAll(r) {
     if (running) return;
-    if (!isReadOnlyQuery(r.unit.sql)) {
-      const ok = await dbConfirm({ title: "Executar de novo?", message: "Buscar todas as linhas executa o comando novamente. Ele não parece ser só leitura (SELECT).", confirmLabel: "Executar", danger: true });
+    if (!r.unit.readOnly) {
+      const ok = await dbConfirm({ title: "Executar de novo?", message: "Buscar tudo executa o comando novamente, e ele não parece ser só leitura.", confirmLabel: "Executar", danger: true });
       if (!ok) return;
     }
     setRunning(true);
@@ -350,6 +377,21 @@ export function createConsoleTab(ctx, tab, doc) {
     updateToolbar();
   }
 
+  /** Troca o banco do console (seletor ou "use <banco>"): a sessão é reaberta no novo banco. */
+  async function switchDatabase(name, display = "") {
+    if (name !== doc.database) {
+      if (tranCount > 0 && !(await dbConfirm({ title: "Transação aberta", message: "Trocar de banco fecha a sessão e desfaz a transação aberta.", confirmLabel: "Trocar", danger: true }))) return false;
+      doc.database = name;
+      tranCount = 0;
+      ctx.saveDataSoon();
+      await dbApi.disconnect(sessionId);
+      updateToolbar();
+      ctx.onTitleChange?.(tab, {});
+    }
+    if (display) addMessage("ok", `Banco do console: ${name}`, display);
+    return true;
+  }
+
   async function dbMenu(anchor) {
     let list = [];
     try {
@@ -363,16 +405,7 @@ export function createConsoleTab(ctx, tab, doc) {
         label: name,
         indent: true,
         icon: name === (doc.database || conn()?.database) ? "fa-solid fa-check" : "",
-        run: async () => {
-          if (name === doc.database) return;
-          if (tranCount > 0 && !(await dbConfirm({ title: "Transação aberta", message: "Trocar de banco fecha a sessão e desfaz a transação aberta.", confirmLabel: "Trocar", danger: true }))) return;
-          doc.database = name;
-          tranCount = 0;
-          ctx.saveDataSoon();
-          await dbApi.disconnect(sessionId);
-          updateToolbar();
-          ctx.onTitleChange?.(tab, {});
-        },
+        run: () => switchDatabase(name),
       })),
     ]);
   }
@@ -419,7 +452,8 @@ export function createConsoleTab(ctx, tab, doc) {
 /** Aba somente leitura com o DDL/definição de um objeto. */
 export function createDdlTab(ctx, tab) {
   const conn = () => ctx.conn(tab.conn_id);
-  const editor = codeEditor({ value: "-- carregando…", lang: "sql", fill: true, readOnly: true });
+  const lang = languageFor(conn());
+  const editor = codeEditor({ value: lang.id === "mongo" ? "// carregando…" : "-- carregando…", lang: lang.editorLang, fill: true, readOnly: true });
   const status = el("span.dbf-info");
   let loaded = false;
   const toolbar = el(
@@ -441,7 +475,7 @@ export function createDdlTab(ctx, tab) {
       status.textContent = "";
       loaded = true;
     } catch (e) {
-      editor.setValue(`-- ${String(e)}`);
+      editor.setValue(`${lang.id === "mongo" ? "//" : "--"} ${String(e)}`);
       status.textContent = "Erro";
     }
   }

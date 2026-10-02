@@ -1,12 +1,14 @@
 import { el, icon } from "../utils/dom.js";
 import { escapeHtml } from "../utils/noteContent.js";
-import { connLabel, metaSession, target } from "../utils/dbModel.js";
+import { connLabel, metaSession, target, isMongo } from "../utils/dbModel.js";
+import { toShell } from "../utils/mongoValue.js";
 import { dbApi } from "../api.js";
 
 // Database Explorer: árvore carregada sob demanda.
 // conexão → bancos → schemas → (tabelas | views | procedures | funções) → objeto → (colunas | chaves | índices | FKs | triggers)
 
 const SYSTEM_DBS = new Set(["master", "tempdb", "model", "msdb"]);
+const MONGO_SYSTEM_DBS = new Set(["admin", "local", "config"]);
 const FOLDERS = [
   ["table", "tabelas", "fa-regular fa-folder"],
   ["view", "views", "fa-regular fa-folder"],
@@ -37,6 +39,9 @@ const ICONS = {
   fk: "fa-solid fa-link",
   trigger: "fa-solid fa-bolt",
   param: "fa-solid fa-at",
+  collection: "fa-solid fa-layer-group",
+  mview: "fa-solid fa-eye",
+  field: "fa-solid fa-tag",
 };
 
 const fmtCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
@@ -97,8 +102,9 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
       const info = await ctx.ensureConnected(conn);
       const list = await dbApi.introspect(tgt(conn, ""), { kind: "databases" });
       const current = info?.database || conn.database;
-      const user = list.filter((d) => !SYSTEM_DBS.has(d.name) || d.name === current);
-      const system = list.filter((d) => SYSTEM_DBS.has(d.name) && d.name !== current);
+      const sysSet = isMongo(conn) ? MONGO_SYSTEM_DBS : SYSTEM_DBS;
+      const user = list.filter((d) => !sysSet.has(d.name) || d.name === current);
+      const system = list.filter((d) => sysSet.has(d.name) && d.name !== current);
       const keys = user.map((d) => node(`${k}/d:${d.name}`, { kind: "database", label: d.name, connId: conn.id, database: d.name, current: d.name === current }).key);
       if (system.length) {
         const sys = node(`${k}/sys`, { kind: "sysfolder", label: "bancos de sistema", connId: conn.id, count: system.length });
@@ -111,6 +117,7 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
       setTimeout(() => (hadState ? restoreExpanded(k) : cur && toggle(cur, true)), 0);
       return keys;
     }
+    if (isMongo(conn)) return fetchMongo(n, conn);
     if (n.kind === "database") {
       const list = await dbApi.introspect(tgt(conn, n.database), { kind: "schemas" });
       const keys = list.map((s) => node(`${k}/s:${s.name}`, { kind: "schema", label: s.name, connId: conn.id, database: n.database, schema: s.name, count: s.rows ?? null }).key);
@@ -178,8 +185,48 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
     return [];
   }
 
+  /** MongoDB: banco → (coleções | views) → coleção → (campos | índices). */
+  async function fetchMongo(n, conn) {
+    const k = n.key;
+    if (n.kind === "database") {
+      const list = await dbApi.introspect(tgt(conn, n.database), { kind: "collections" });
+      const keys = [];
+      for (const [kind, label] of [
+        ["collection", "coleções"],
+        ["view", "views"],
+      ]) {
+        const items = list.filter((o) => o.kind === kind);
+        if (!items.length) continue;
+        const folder = node(`${k}/f:${kind}`, { kind: "folder", label, connId: conn.id, database: n.database, count: items.length });
+        folder.children = items.map(
+          (o) => node(`${folder.key}/o:${o.name}`, { kind: kind === "view" ? "mview" : "collection", label: o.name, connId: conn.id, database: n.database, schema: "", name: o.name }).key,
+        );
+        keys.push(folder.key);
+        // A pasta de coleções já abre (é quase sempre o que se quer ver).
+        if (kind === "collection" && !expanded.has(folder.key)) expanded.add(folder.key);
+      }
+      return keys;
+    }
+    if (n.kind === "collection" || n.kind === "mview") {
+      const list = await dbApi.introspect(tgt(conn, n.database), { kind: n.kind === "mview" ? "view" : "collection", name: n.name });
+      const keys = [];
+      for (const [kind, label] of [
+        ["field", "campos (amostra)"],
+        ["index", "índices"],
+      ]) {
+        const items = list.filter((o) => o.kind === kind);
+        if (!items.length) continue;
+        const group = node(`${k}/g:${kind}`, { kind: "group", label, connId: conn.id, count: items.length });
+        group.children = items.map((o, i) => node(`${group.key}/${i}:${o.name}`, { kind, label: o.name, detail: o.detail || "", flag: !!o.flag, connId: conn.id }).key);
+        keys.push(group.key);
+      }
+      return keys;
+    }
+    return [];
+  }
+
   function expandable(n) {
-    return ["conn", "database", "sysfolder", "schema", "folder", "group", "table", "view", "procedure", "function"].includes(n.kind);
+    return ["conn", "database", "sysfolder", "schema", "folder", "group", "table", "view", "procedure", "function", "collection", "mview"].includes(n.kind);
   }
 
   async function toggle(key, open = !expanded.has(key)) {
@@ -261,6 +308,7 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
     let ic = n.icon || ICONS[n.kind] || "fa-regular fa-circle";
     if (n.kind === "folder" || n.kind === "group" || n.kind === "sysfolder") ic = open ? "fa-regular fa-folder-open" : "fa-regular fa-folder";
     if (n.kind === "conn" && /\.database\.windows\.net$/i.test(conn?.host || "")) ic = "fa-brands fa-microsoft";
+    if (n.kind === "conn" && isMongo(conn)) ic = "fa-solid fa-leaf";
     let extra = "";
     if (n.kind === "conn") {
       const st = ctx.status(n.connId);
@@ -321,6 +369,8 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
   function activate(n) {
     if (!n) return;
     if (n.kind === "table" || n.kind === "view") return ctx.openTable(objectRef(n));
+    if (n.kind === "collection" || n.kind === "mview") return ctx.openTable({ ...objectRef(n), kind: n.kind === "mview" ? "view" : "collection" });
+    if (n.kind === "field") return ctx.copy(n.label, `"${n.label}" copiado`);
     if (n.kind === "procedure" || n.kind === "function" || n.kind === "trigger") return ctx.openDdl({ ...objectRef(n), kind: n.kind });
     if (n.kind === "column") return ctx.copy(n.label, `"${n.label}" copiado`);
     if (expandable(n)) toggle(n.key);
@@ -342,13 +392,25 @@ export function createExplorer(ctx, { treeEl, searchEl }) {
         "sep",
         { label: "Editar conexão…", icon: "fa-solid fa-pen", run: () => ctx.editConnection(conn) },
         { label: "Duplicar", icon: "fa-regular fa-copy", run: () => ctx.duplicateConnection(conn) },
-        { label: "Copiar servidor", icon: "fa-regular fa-clipboard", run: () => ctx.copy(conn.host) },
+        { label: isMongo(conn) ? "Copiar connection string" : "Copiar servidor", icon: "fa-regular fa-clipboard", run: () => ctx.copy(isMongo(conn) ? conn.uri : conn.host) },
         conn.auth.kind === "entra" ? { label: "Sair da conta Microsoft", icon: "fa-solid fa-right-from-bracket", run: () => ctx.signOut(conn) } : null,
         "sep",
         { label: "Excluir conexão", icon: "fa-regular fa-trash-can", danger: true, run: () => ctx.deleteConnection(conn) },
       );
     } else if (n.kind === "database" || n.kind === "schema") {
       items.push(consoleItem(n.database), { label: "Atualizar", icon: "fa-solid fa-rotate", run: () => refresh(n.key) }, { label: "Copiar nome", icon: "fa-regular fa-clipboard", run: () => ctx.copy(n.label) });
+    } else if (n.kind === "collection" || n.kind === "mview") {
+      const ref = { ...objectRef(n), kind: n.kind === "mview" ? "view" : "collection" };
+      const coll = /^[A-Za-z_$][\w$]*$/.test(n.name) ? `db.${n.name}` : `db.getCollection(${toShell(n.name)})`;
+      items.push(
+        { label: "Abrir documentos", icon: "fa-solid fa-table", run: () => ctx.openTable(ref) },
+        { label: "Novo console com find()", icon: "fa-solid fa-terminal", run: () => ctx.openConsole(conn, n.database, `${coll}.find({})\n  .limit(100)`) },
+        { label: "Novo console com aggregate()", icon: "fa-solid fa-diagram-project", run: () => ctx.openConsole(conn, n.database, `${coll}.aggregate([\n  { $match: {} },\n  { $limit: 100 }\n])`) },
+        { label: "Ver script (índices/opções)", icon: "fa-solid fa-code", run: () => ctx.openDdl(ref) },
+        "sep",
+        { label: "Copiar nome", icon: "fa-regular fa-clipboard", run: () => ctx.copy(n.name) },
+        { label: "Atualizar", icon: "fa-solid fa-rotate", run: () => refresh(n.key) },
+      );
     } else if (n.kind === "table" || n.kind === "view") {
       const ref = objectRef(n);
       const qn = ctx.dialect(conn).qualified(n.schema, n.name);

@@ -1,6 +1,7 @@
 import { el } from "../utils/dom.js";
 import { escapeHtml } from "../utils/noteContent.js";
 import { SQL_KEYWORDS, SQL_FUNCTIONS } from "../utils/highlight.js";
+import { MONGO_COLLECTION_METHODS, MONGO_CURSOR_METHODS, MONGO_OPERATORS } from "../utils/mongoShell.js";
 
 // Autocomplete SQL leve: tabelas/views do banco, colunas (inclusive por alias "t."),
 // palavras-chave e funções. Abre sozinho ao digitar 2+ letras ou depois de ".", ou com Ctrl+Espaço.
@@ -248,7 +249,8 @@ export function attachSqlComplete(editor, { getSource }) {
 }
 
 /** Autocomplete simples de palavras (nomes de colunas) para um <input> de uma linha. */
-export function attachWordComplete(input, getWords) {
+/** quote(name): como inserir um nome com caracteres especiais (padrão: [nome] do SQL Server). */
+export function attachWordComplete(input, getWords, { quote = (w) => `[${w.replace(/]/g, "]]")}]` } = {}) {
   // Criado no primeiro uso: na ligação o input ainda pode não estar no DOM.
   let lazy = null;
   const popup = {
@@ -280,7 +282,7 @@ export function attachWordComplete(input, getWords) {
     const x = input.offsetLeft + parseFloat(style.paddingLeft) + textWidth(input.value.slice(0, start), `${style.fontSize} ${style.fontFamily}`) - input.scrollLeft;
     popup.show(items, x, input.offsetTop + input.offsetHeight + 2, (it) => {
       const pos = input.selectionStart;
-      const text = /[^\w$#@]/.test(it.insert) ? `[${it.insert.replace(/]/g, "]]")}]` : it.insert;
+      const text = /[^\w$#@]/.test(it.insert) ? quote(it.insert) : it.insert;
       input.setRangeText(text, start, pos, "end");
       popup.hide();
       input.focus();
@@ -303,7 +305,7 @@ export function attachWordComplete(input, getWords) {
       const it = popup.current();
       if (it) {
         const { start } = wordAt();
-        const text = /[^\w$#@]/.test(it.insert) ? `[${it.insert.replace(/]/g, "]]")}]` : it.insert;
+        const text = /[^\w$#@]/.test(it.insert) ? quote(it.insert) : it.insert;
         input.setRangeText(text, start, input.selectionStart, "end");
       }
       popup.hide();
@@ -315,4 +317,126 @@ export function attachWordComplete(input, getWords) {
   });
   input.addEventListener("input", (e) => (e.inputType?.startsWith("insert") ? open(false) : popup.hide()));
   input.addEventListener("blur", () => setTimeout(() => popup.hide(), 100));
+}
+
+// ---------- MongoDB (mongosh) ----------
+
+const COLL_RE = /db\.(?:getCollection\(\s*['"]([^'"]+)['"]\s*\)|([A-Za-z_$][\w$]*))\./;
+
+/**
+ * Autocomplete do console MongoDB: coleções depois de "db.", métodos da coleção e do cursor,
+ * operadores ($gt, $set, $match…) e campos da coleção do comando (amostrados).
+ * getSource() → Promise<{ objects: [{name, kind}], columnsOf("", coleção) → Promise<[{name, type}]> }>
+ */
+export function attachMongoComplete(editor, { getSource }) {
+  const { input, root } = editor;
+  const popup = createPopup(root);
+  let timer = 0;
+  let seq = 0;
+
+  function caretXY(pos) {
+    const { line } = editor.position(pos);
+    const style = getComputedStyle(input);
+    const lineText = input.value.slice(input.value.lastIndexOf("\n", pos - 1) + 1, pos);
+    const lineH = parseFloat(style.lineHeight) || 19;
+    const codeLeft = input.offsetLeft + input.parentElement.offsetLeft;
+    const x = codeLeft + parseFloat(style.paddingLeft) + textWidth(lineText, `${style.fontSize} ${style.fontFamily}`) - input.scrollLeft;
+    return { x, y: input.offsetTop + parseFloat(style.paddingTop) + line * lineH - input.scrollTop + 2 };
+  }
+
+  async function open(explicit) {
+    const pos = input.selectionStart;
+    if (pos !== input.selectionEnd) return popup.hide();
+    const text = input.value;
+    const before = text.slice(0, pos);
+    const m = /[\w$]*$/.exec(before);
+    const word = m[0];
+    const start = pos - word.length;
+    const lineStart = before.lastIndexOf("\n") + 1;
+    const lineBefore = before.slice(lineStart);
+    if ((lineBefore.match(/['"]/g) || []).length % 2 === 1 || lineBefore.includes("//")) return popup.hide();
+    const prefix = before.slice(0, start);
+    const my = ++seq;
+    let source = null;
+    try {
+      source = await getSource();
+    } catch {
+      source = null;
+    }
+    if (my !== seq || input.selectionStart !== pos) return;
+    const items = [];
+    const method = (name, order = 0) => ({ label: name, detail: "método", icon: "fa-solid fa-cube", insert: `${name}(`, order });
+
+    if (/(^|[^\w$.])db\.$/.test(prefix)) {
+      for (const o of source?.objects || []) {
+        const ok = /^[A-Za-z_$][\w$]*$/.test(o.name);
+        items.push({ label: o.name, detail: o.kind, icon: o.kind === "view" ? "fa-solid fa-eye" : "fa-solid fa-layer-group", insert: ok ? o.name : `getCollection('${o.name.replace(/'/g, "\'")}')`, order: 0 });
+      }
+      ["getCollection", "runCommand", "adminCommand", "getCollectionNames", "createCollection"].forEach((n) => items.push(method(n, 1)));
+    } else if (/db\.(?:getCollection\(\s*['"][^'"]+['"]\s*\)|[A-Za-z_$][\w$]*)\.$/.test(prefix)) {
+      MONGO_COLLECTION_METHODS.forEach((n, i) => items.push(method(n, i < 6 ? 0 : 1)));
+    } else if (/\)\s*\.$/.test(prefix)) {
+      MONGO_CURSOR_METHODS.forEach((n) => items.push(method(n)));
+    } else if (word.startsWith("$") || /\$$/.test(prefix)) {
+      for (const op of MONGO_OPERATORS) items.push({ label: op, detail: "operador", icon: "fa-solid fa-dollar-sign", insert: op, order: 0 });
+    } else {
+      if (!explicit && word.length < 1) return popup.hide();
+      // Dentro de { … }: campos da coleção deste comando.
+      const stmtStart = Math.max(text.lastIndexOf("\ndb.", pos - 1) + 1, text.lastIndexOf(";", pos - 1) + 1, 0);
+      const cm = COLL_RE.exec(text.slice(stmtStart, pos));
+      const coll = cm ? cm[1] || cm[2] : null;
+      if (coll && source) {
+        const cols = await source.columnsOf("", coll).catch(() => []);
+        cols.forEach((c, i) => items.push({ label: c.name, detail: c.type, icon: "fa-solid fa-tag", insert: /^[A-Za-z_$][\w$]*$/.test(c.name) ? c.name : `'${c.name}'`, order: i < 50 ? 0 : 1 }));
+      }
+      for (const k of ["ObjectId", "ISODate", "NumberLong", "NumberDecimal", "UUID"]) items.push({ label: k, detail: "tipo", icon: "fa-solid fa-font", insert: `${k}(`, order: 2 });
+    }
+    // Pega o "$" junto da palavra digitada.
+    const effStart = prefix.endsWith("$") && !word.startsWith("$") ? start - 1 : start;
+    const ranked = rank(items, text.slice(effStart, pos));
+    if (!explicit && ranked.length === 1 && ranked[0].label === text.slice(effStart, pos)) return popup.hide();
+    const { x, y } = caretXY(effStart);
+    popup.show(ranked, x, y, (it) => pick(it, effStart));
+  }
+
+  function pick(it, start) {
+    const pos = input.selectionStart;
+    input.setSelectionRange(start, pos);
+    if (!document.execCommand("insertText", false, it.insert)) input.setRangeText(it.insert, start, pos, "end");
+    popup.hide();
+  }
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === " " && e.ctrlKey) {
+      e.preventDefault();
+      return open(true);
+    }
+    if (!popup.isOpen) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      popup.move(e.key === "ArrowDown" ? 1 : -1);
+    } else if ((e.key === "Enter" && !e.ctrlKey && !e.metaKey) || e.key === "Tab") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const it = popup.current();
+      if (it) {
+        const before = input.value.slice(0, input.selectionStart);
+        const w = /[\w$]*$/.exec(before)[0];
+        pick(it, input.selectionStart - w.length);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      popup.hide();
+    }
+  });
+  input.addEventListener("input", (e) => {
+    clearTimeout(timer);
+    if (e.inputType && !e.inputType.startsWith("insert")) return popup.hide();
+    timer = setTimeout(() => open(false), 120);
+  });
+  input.addEventListener("blur", () => setTimeout(() => popup.hide(), 100));
+  input.addEventListener("scroll", () => popup.hide(), { passive: true });
+  return { isOpen: () => popup.isOpen, destroy: () => popup.destroy() };
 }

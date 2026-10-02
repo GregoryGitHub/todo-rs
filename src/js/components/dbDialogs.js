@@ -1,7 +1,7 @@
 import { el, icon } from "../utils/dom.js";
 import { createModalHost, btn } from "./modal.js";
 import { highlightCode } from "../utils/highlight.js";
-import { normalizeConnection, connConfig, connLabel, isAzureHost, parseConnectionString, CONN_COLORS } from "../utils/dbModel.js";
+import { normalizeConnection, connConfig, connLabel, isAzureHost, parseConnectionString, parseMongoUri, mongoFlavor, CONN_COLORS } from "../utils/dbModel.js";
 import { dbApi } from "../api.js";
 
 // Modais da aba Banco: conexão (criar/editar/testar) e revisão do SQL antes de gravar.
@@ -144,6 +144,83 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
   );
   const trustBox = check("Confiar no certificado do servidor", c.trust_server_certificate, (v) => (c.trust_server_certificate = v), "TrustServerCertificate=True (servidores locais com certificado autoassinado)");
 
+  // ---------- MongoDB ----------
+
+  const mongoUser = input(c.auth.user, { placeholder: "usuário (se não estiver na connection string)", oninput: (e) => (c.auth.user = e.target.value) });
+  const mongoPw = input("", { type: "password", placeholder: hasPassword ? "•••••••• (salva no cofre do sistema)" : "senha", oninput: (e) => (password = e.target.value) });
+  const mongoDb = input(c.database, { placeholder: "padrão da connection string", oninput: (e) => (c.database = e.target.value) });
+  const mongoTimeout = input(c.connect_timeout_s, { type: "number", className: "hx-num", oninput: (e) => (c.connect_timeout_s = Number(e.target.value) || 15) });
+  const flavorBadge = el("span.db-kind-badge");
+  const uriInput = el("textarea.hx-code-input.db-connstr", {
+    rows: 2,
+    value: c.uri,
+    placeholder: "mongodb+srv://usuario@cluster0.xxxxx.mongodb.net/  ·  mongodb://localhost:27017  ·  connection string do Azure Cosmos DB",
+    spellcheck: false,
+  });
+  function syncUri() {
+    const parsed = parseMongoUri(uriInput.value);
+    flavorBadge.textContent = mongoFlavor(uriInput.value);
+    flavorBadge.classList.toggle("azure", flavorBadge.textContent !== "MongoDB");
+    if (!parsed.valid) {
+      c.uri = uriInput.value.trim();
+      return;
+    }
+    // A senha nunca fica na connection string salva: vai para o cofre do sistema.
+    if (parsed.password !== undefined) {
+      password = parsed.password;
+      mongoPw.value = parsed.password;
+      uriInput.value = parsed.uri;
+      showStatus(true, "A senha foi retirada da connection string e será guardada no cofre do sistema.");
+    }
+    c.uri = parsed.uri;
+    if (parsed.user) {
+      c.auth.user = parsed.user;
+      mongoUser.value = parsed.user;
+    }
+    if (parsed.database && !c.database) {
+      c.database = parsed.database;
+      mongoDb.value = parsed.database;
+    }
+  }
+  uriInput.addEventListener("input", syncUri);
+  const mongoSection = el(
+    "div.db-mongo",
+    {},
+    field(el("span", {}, "Connection string ", flavorBadge), uriInput, "Atlas (mongodb+srv://), servidor/replica set (mongodb://) ou Azure Cosmos DB (API MongoDB). Opções como authSource, replicaSet, tls e retryWrites vão na própria string."),
+    el("div.db-row2", {}, field("Usuário", mongoUser), field("Senha", mongoPw)),
+    el("div.db-row2", {}, field("Banco padrão", mongoDb), field("Tempo limite de conexão (s)", mongoTimeout)),
+    check("Aceitar certificado TLS inválido/autoassinado", c.tls_insecure, (v) => (c.tls_insecure = v), "tlsAllowInvalidCertificates=true (servidores de teste)"),
+    check("Somente leitura (bloqueia edição no grid e pede confirmação para comandos que alteram dados)", c.read_only, (v) => (c.read_only = v)),
+  );
+
+  const isMongoConn = () => c.driver === "mongo";
+  const driverSwitch = el("div.db-driver-switch");
+  function paintDriver() {
+    driverSwitch.innerHTML = "";
+    for (const [value, label, ic] of [
+      ["mssql", "SQL Server / Azure SQL", "fa-solid fa-server"],
+      ["mongo", "MongoDB", "fa-solid fa-leaf"],
+    ]) {
+      driverSwitch.append(
+        el(
+          "button",
+          {
+            type: "button",
+            class: `db-driver${c.driver === value ? " on" : ""}`,
+            onclick: () => {
+              c.driver = value;
+              paintDriver();
+            },
+          },
+          icon(ic),
+          label,
+        ),
+      );
+    }
+    sqlSection.hidden = isMongoConn();
+    mongoSection.hidden = !isMongoConn();
+  }
+
   function showStatus(ok, text) {
     status.hidden = false;
     status.className = `db-test ${ok === null ? "busy" : ok ? "ok" : "bad"}`;
@@ -151,12 +228,21 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
     status.append(icon(ok === null ? "fa-solid fa-spinner fa-spin" : ok ? "fa-solid fa-circle-check" : "fa-solid fa-circle-exclamation"), el("span", {}, text));
   }
 
+  function validate() {
+    if (isMongoConn()) {
+      if (!parseMongoUri(c.uri).valid) return "Informe a connection string (mongodb:// ou mongodb+srv://).";
+    } else if (!c.host.trim()) return "Informe o servidor.";
+    return "";
+  }
+
   async function test() {
-    if (!c.host.trim()) return showStatus(false, "Informe o servidor.");
-    showStatus(null, c.auth.kind === "entra" ? "Abrindo o login da Microsoft no navegador…" : "Conectando…");
+    const problem = validate();
+    if (problem) return showStatus(false, problem);
+    showStatus(null, !isMongoConn() && c.auth.kind === "entra" ? "Abrindo o login da Microsoft no navegador…" : "Conectando…");
     testBtn.disabled = true;
     try {
-      const info = await dbApi.test(connConfig(c), c.auth.kind === "sql" ? (password ?? null) : null);
+      const pw = isMongoConn() || c.auth.kind === "sql" ? (password ?? null) : null;
+      const info = await dbApi.test(connConfig(isMongoConn() ? { ...c, auth: { ...c.auth, kind: "sql" } } : c), pw);
       showStatus(true, `Conectado: ${info.product} ${info.version} · banco ${info.database} · ${info.user}`);
     } catch (e) {
       showStatus(false, String(e));
@@ -167,8 +253,8 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
 
   const testBtn = btn([icon("fa-solid fa-plug-circle-check"), " Testar conexão"], test);
 
-  const body = el(
-    "div.db-conn-form",
+  const sqlSection = el(
+    "div.db-sql",
     {},
     el(
       "details.db-connstr-box",
@@ -177,7 +263,6 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
       connStr,
       el("div.db-connstr-actions", {}, btn("Preencher campos", applyConnStr)),
     ),
-    el("div.db-row2", {}, field("Nome", nameInput), field("Cor", colorRow)),
     el("div.db-row3", {}, field(el("span", {}, "Servidor ", kindBadge), hostInput), field("Porta", portInput), field("Instância", instanceInput)),
     field("Banco padrão", dbInput, "Azure SQL: cada banco usa uma conexão própria; o Explorer lista os demais bancos do servidor."),
     field("Autenticação", authSelect),
@@ -192,13 +277,18 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
       check("Intenção somente leitura (ApplicationIntent=ReadOnly)", c.read_intent, (v) => (c.read_intent = v), "Direciona para réplicas de leitura do Azure SQL"),
       check("Somente leitura (bloqueia edição no grid e pede confirmação para comandos que alteram dados)", c.read_only, (v) => (c.read_only = v)),
     ),
-    status,
   );
+  const body = el("div.db-conn-form", {}, driverSwitch, el("div.db-row2", {}, field("Nome", nameInput), field("Cor", colorRow)), sqlSection, mongoSection, status);
   syncAuth();
   syncKind();
+  syncUri();
+  status.hidden = true;
+  paintDriver();
 
   const save = () => {
-    if (!c.host.trim()) return showStatus(false, "Informe o servidor.");
+    const problem = validate();
+    if (problem) return showStatus(false, problem);
+    if (isMongoConn()) c.auth.kind = "sql";
     modal.close();
     onSave(c, c.auth.kind === "sql" ? password : undefined);
   };
@@ -217,14 +307,22 @@ export function connectionDialog(initial, { isNew, hasPassword = false, onSave, 
       btn("Salvar", save, "hx-btn.primary"),
     ].filter(Boolean),
   });
-  (isNew ? hostInput : nameInput).focus();
+  (isNew ? (isMongoConn() ? uriInput : hostInput) : nameInput).focus();
 }
 
 /** Mostra o SQL que será aplicado e pede confirmação. */
-export function reviewChangesDialog({ statements, connection, inTransaction }) {
+export function reviewChangesDialog({ statements, connection, inTransaction, mongo = false }) {
   const counts = statements.reduce((acc, s) => ((acc[s.kind] = (acc[s.kind] || 0) + 1), acc), {});
-  const summary = [counts.update && `${counts.update} UPDATE`, counts.insert && `${counts.insert} INSERT`, counts.delete && `${counts.delete} DELETE`].filter(Boolean).join(" · ");
-  const pre = el("pre.db-sql-preview", { html: highlightCode(statements.map((s) => `${s.sql};`).join("\n"), "sql") });
+  const summary = mongo
+    ? [counts.update && `${counts.update} updateOne`, counts.insert && `${counts.insert} insertOne`, counts.delete && `${counts.delete} deleteOne`, counts.replace && `${counts.replace} replaceOne`].filter(Boolean).join(" · ")
+    : [counts.update && `${counts.update} UPDATE`, counts.insert && `${counts.insert} INSERT`, counts.delete && `${counts.delete} DELETE`].filter(Boolean).join(" · ");
+  const code = mongo ? statements.map((s) => s.text).join("\n") : statements.map((s) => `${s.sql};`).join("\n");
+  const pre = el("pre.db-sql-preview", { html: highlightCode(code, mongo ? "javascript" : "sql") });
+  const note = mongo
+    ? " — aplicadas em ordem, sem transação: se uma falhar, as anteriores já estarão gravadas."
+    : inTransaction
+      ? " — dentro da transação aberta (confirme depois com Commit)."
+      : " — numa transação: se um comando falhar, nada é gravado.";
   const body = el(
     "div",
     {},
@@ -233,7 +331,7 @@ export function reviewChangesDialog({ statements, connection, inTransaction }) {
       {},
       `${summary} em `,
       el("strong", {}, connection),
-      inTransaction ? " — dentro da transação aberta (confirme depois com Commit)." : " — numa transação: se um comando falhar, nada é gravado.",
+      note,
     ),
     pre,
   );
@@ -241,12 +339,12 @@ export function reviewChangesDialog({ statements, connection, inTransaction }) {
 }
 
 /** Mostra um texto SQL (DDL, comando gerado) com opção de copiar. */
-export function sqlPreviewDialog({ title, sql, onCopy, onOpenInConsole }) {
+export function sqlPreviewDialog({ title, sql, onCopy, onOpenInConsole, lang = "sql" }) {
   modal.open({
     title,
     iconCls: "fa-solid fa-code",
     wide: true,
-    body: el("pre.db-sql-preview.tall", { html: highlightCode(sql, "sql") }),
+    body: el("pre.db-sql-preview.tall", { html: highlightCode(sql, lang) }),
     footer: [
       onOpenInConsole ? btn([icon("fa-solid fa-terminal"), " Abrir no console"], () => (modal.close(), onOpenInConsole(sql))) : null,
       btn([icon("fa-regular fa-copy"), " Copiar"], () => onCopy(sql), "hx-btn.primary"),

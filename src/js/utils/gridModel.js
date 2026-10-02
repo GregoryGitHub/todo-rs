@@ -7,6 +7,8 @@
 import { DEFAULT, GENERATED, isMarker } from "./sqlDialect.js";
 
 export const NULL_KEY = "\u0000null";
+/** Campo ausente no documento (MongoDB): diferente de NULL. */
+export const MISSING_KEY = "\u0000missing";
 const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
 const NUMERIC_KINDS = new Set(["int", "num", "dec"]);
 
@@ -14,7 +16,8 @@ export const isNumericKind = (kind) => NUMERIC_KINDS.has(kind);
 
 /** Texto exibido/copiado de um valor. */
 export function displayText(v) {
-  if (v === null || v === undefined) return "<null>";
+  if (v === undefined) return "";
+  if (v === null) return "<null>";
   if (isMarker(v)) return String(v);
   if (typeof v === "boolean") return v ? "1" : "0";
   return String(v);
@@ -28,7 +31,8 @@ export function plainText(v) {
 }
 
 export function filterKey(v) {
-  return v === null || v === undefined ? NULL_KEY : displayText(v);
+  if (v === undefined) return MISSING_KEY;
+  return v === null ? NULL_KEY : displayText(v);
 }
 
 function numberOf(v) {
@@ -232,9 +236,14 @@ export class GridModel {
     return r;
   }
 
-  /** Valores iniciais de uma linha nova: gerados, DEFAULT ou NULL conforme a coluna. */
+  /** Valores iniciais de uma linha nova: gerados, DEFAULT ou NULL conforme a coluna (ou `column.blank`). */
   blankRow() {
-    return this.columns.map((c) => (c.is_identity || c.is_computed ? GENERATED : c.has_default ? DEFAULT : c.nullable === false ? DEFAULT : null));
+    return this.columns.map((c) => ("blank" in c ? c.blank : c.is_identity || c.is_computed ? GENERATED : c.has_default ? DEFAULT : c.nullable === false ? DEFAULT : null));
+  }
+
+  /** Colunas novas (documentos com campos diferentes): as linhas existentes ficam com o campo ausente. */
+  addColumns(cols) {
+    if (cols.length) this.columns.push(...cols);
   }
 
   deleteRows(rows) {

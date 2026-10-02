@@ -339,7 +339,7 @@ export function createTableTab(ctx, tab) {
       if (manual && tranCount === 0) tranCount = await dbApi.tx(tgt(), "begin");
       const affected = await dbApi.apply(tgt(), statements.map((s) => s.sql), !manual);
       const zero = affected.filter((n) => n === 0).length;
-      ctx.log({ conn: conn(), database: tab.database, sql: statements.map((s) => s.sql + ";").join("\n"), rows: affected.reduce((a, b) => a + b, 0) });
+      ctx.log({ conn: conn(), database: tab.database, sql: statements.map((s) => s.sql + ";").join("\n"), affected: affected.reduce((a, b) => a + b, 0) });
       grid.acceptPending();
       ctx.toast(zero ? `Gravado, mas ${zero} comando(s) não afetaram nenhuma linha (a linha mudou no banco?)` : `${statements.length} alteração(ões) gravada(s)${manual ? " — confirme com Commit" : ""}`);
       if (manual) tranCount = Math.max(tranCount, 1);

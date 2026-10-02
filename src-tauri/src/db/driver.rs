@@ -16,6 +16,7 @@ pub struct ConnConfig {
     pub id: String,
     #[serde(default = "default_driver")]
     pub driver: String,
+    #[serde(default)]
     pub host: String,
     #[serde(default)]
     pub port: Option<u16>,
@@ -35,6 +36,12 @@ pub struct ConnConfig {
     pub read_intent: bool,
     #[serde(default = "default_timeout")]
     pub connect_timeout_s: u64,
+    /// MongoDB: connection string (mongodb:// ou mongodb+srv://) sem a senha (que fica no cofre).
+    #[serde(default)]
+    pub uri: String,
+    /// MongoDB: aceitar certificado TLS inválido/autoassinado.
+    #[serde(default)]
+    pub tls_insecure: bool,
 }
 
 fn default_driver() -> String {
@@ -88,6 +95,8 @@ pub enum ExecEvent {
     ResultStart { index: usize, columns: Vec<ColumnMeta> },
     /// Lote de linhas (cada linha é um array na ordem das colunas).
     Rows { index: usize, rows: Vec<Vec<Value>> },
+    /// Lote de documentos (bancos de documentos) em Extended JSON relaxado.
+    Docs { index: usize, docs: Vec<Value> },
     /// Fim de um result set.
     ResultEnd { index: usize, row_count: u64, truncated: bool },
 }
@@ -188,7 +197,8 @@ pub struct ServerInfo {
 pub trait Session: Send {
     async fn server_info(&mut self) -> DbResult<ServerInfo>;
 
-    /// Executa um lote de SQL enviando os result sets para `sink`.
+    /// Executa um comando na linguagem da conexão (SQL; no MongoDB, a operação em JSON montada
+    /// pelo frontend a partir da sintaxe do mongosh) enviando os resultados para `sink`.
     /// `max_rows` limita as linhas de cada result set (o resto é cancelado no servidor).
     async fn execute(&mut self, sql: &str, sink: &mut dyn EventSink, max_rows: Option<u64>) -> DbResult<ExecSummary>;
 
@@ -223,6 +233,7 @@ pub trait Driver: Send + Sync {
 pub fn driver_for(name: &str) -> DbResult<&'static dyn Driver> {
     match name {
         "mssql" | "azuresql" => Ok(&super::mssql::MssqlDriver),
+        "mongo" => Ok(&super::mongo::MongoDriver),
         other => Err(format!("Driver de banco não suportado: {other}")),
     }
 }

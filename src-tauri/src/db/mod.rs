@@ -7,6 +7,7 @@
 
 mod driver;
 mod entra;
+mod mongo;
 mod mssql;
 mod mssql_meta;
 mod secrets;
@@ -187,6 +188,10 @@ pub async fn db_connect(app: tauri::AppHandle, target: Target) -> Result<ServerI
 /// Fecha as sessões com esse id ou prefixo (ex.: "meta:<conn>:" ou "<conn>:").
 #[tauri::command]
 pub async fn db_disconnect(app: tauri::AppHandle, prefix: String) -> Result<(), String> {
+    // "meta:<conn>:" = desconectar a conexão inteira: descarta também o pool do MongoDB.
+    if let Some(conn_id) = prefix.strip_prefix("meta:").and_then(|r| r.split(':').next()) {
+        mongo::forget(conn_id);
+    }
     let sessions = app.state::<DbSessions>();
     let slots: Vec<Slot> = {
         let mut map = sessions.0.lock().unwrap();

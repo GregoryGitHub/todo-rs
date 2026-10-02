@@ -165,8 +165,12 @@ impl MssqlSession {
         Ok(())
     }
 
-    async fn stream(&mut self, sql: &str, sink: &mut dyn EventSink, max_rows: Option<u64>, summary: &mut ExecSummary) -> Result<(), Fail> {
-        let mut stream = self.client.simple_query(sql).await?;
+    /// Executa o lote na sessão e envia os result sets para `sink`. Devolve a soma das linhas
+    /// afetadas por INSERT/UPDATE/DELETE/MERGE (contagem do DONE de cada comando, via o patch
+    /// do tiberius em vendor/), ou None se o lote não alterou dados.
+    async fn stream(&mut self, sql: &str, sink: &mut dyn EventSink, max_rows: Option<u64>, summary: &mut ExecSummary) -> Result<Option<u64>, Fail> {
+        let mut stream = self.client.simple_query_counted(sql).await?;
+        let mut affected: Option<u64> = None;
         let mut current: Option<usize> = None;
         let mut buf: Vec<Vec<Value>> = Vec::new();
         let mut count = 0u64;
@@ -175,6 +179,11 @@ impl MssqlSession {
 
         while let Some(item) = stream.try_next().await? {
             match item {
+                QueryItem::RowsAffected { rows, command } => {
+                    if is_dml_command(command) {
+                        affected = Some(affected.unwrap_or(0) + rows);
+                    }
+                }
                 QueryItem::Metadata(meta) => {
                     if let Some(index) = current {
                         flush(sink, index, &mut buf)?;
@@ -209,9 +218,20 @@ impl MssqlSession {
             flush(sink, index, &mut buf)?;
             send(sink, ExecEvent::ResultEnd { index, row_count: count, truncated })?;
         }
-        Ok(())
+        Ok(affected)
     }
 }
+
+/// CurCmd (MS-TDS) de comandos que alteram linhas. SELECT (0xC1), atribuições de variável,
+/// DDL etc. também mandam contagem, mas não são "registros afetados".
+fn is_dml_command(command: u16) -> bool {
+    matches!(command, DML_INSERT | DML_DELETE | DML_UPDATE | DML_MERGE)
+}
+
+const DML_INSERT: u16 = 0xC3;
+const DML_DELETE: u16 = 0xC4;
+const DML_UPDATE: u16 = 0xC5;
+const DML_MERGE: u16 = 0x117;
 
 fn send(sink: &mut dyn EventSink, event: ExecEvent) -> Result<(), Fail> {
     sink.send(event).map_err(Fail::Sink)
@@ -253,14 +273,9 @@ impl Session for MssqlSession {
     async fn execute(&mut self, sql: &str, sink: &mut dyn EventSink, max_rows: Option<u64>) -> DbResult<ExecSummary> {
         let started = Instant::now();
         let mut summary = ExecSummary::default();
-        if is_plain_dml(sql) {
-            // sp_executesql devolve as linhas afetadas (o stream de consulta não expõe o DONE).
-            match self.client.execute(sql, &[]).await {
-                Ok(res) => summary.rows_affected = Some(res.total()),
-                Err(e) => return Err(self.fail(Fail::Db(e))),
-            }
-        } else if let Err(e) = self.stream(sql, sink, max_rows, &mut summary).await {
-            return Err(self.fail(e));
+        match self.stream(sql, sink, max_rows, &mut summary).await {
+            Ok(affected) => summary.rows_affected = affected,
+            Err(e) => return Err(self.fail(e)),
         }
         summary.elapsed_ms = started.elapsed().as_millis() as u64;
         summary.tran_count = self.tran_count().await.unwrap_or(0);
@@ -467,89 +482,14 @@ fn hex(bytes: &[u8]) -> String {
     s
 }
 
-// ---------- Classificação do SQL ----------
-
-/// Palavras do SQL fora de strings, comentários e identificadores delimitados,
-/// e se existe outro comando depois de um `;`.
-fn scan_words(sql: &str) -> (Vec<String>, bool) {
-    let chars: Vec<char> = sql.chars().collect();
-    let mut words = Vec::new();
-    let mut after_semicolon = false;
-    let mut multiple = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        let next = chars.get(i + 1).copied();
-        if c == '-' && next == Some('-') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-        } else if c == '/' && next == Some('*') {
-            i += 2;
-            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                i += 1;
-            }
-            i += 2;
-        } else if c == '\'' || c == '"' || c == '[' {
-            let close = if c == '[' { ']' } else { c };
-            i += 1;
-            while i < chars.len() {
-                if chars[i] == close {
-                    if chars.get(i + 1) == Some(&close) {
-                        i += 2;
-                        continue;
-                    }
-                    break;
-                }
-                i += 1;
-            }
-            i += 1;
-            if after_semicolon {
-                multiple = true;
-            }
-        } else if c == ';' {
-            after_semicolon = true;
-            i += 1;
-        } else if c.is_alphanumeric() || c == '_' || c == '@' || c == '#' {
-            let start = i;
-            while i < chars.len() && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '@' | '#' | '$')) {
-                i += 1;
-            }
-            if after_semicolon {
-                multiple = true;
-            }
-            words.push(chars[start..i].iter().collect::<String>().to_uppercase());
-        } else {
-            if after_semicolon && !c.is_whitespace() {
-                multiple = true;
-            }
-            i += 1;
-        }
-    }
-    (words, multiple)
-}
-
-/// INSERT/UPDATE/DELETE/MERGE único e sem OUTPUT: não devolve linhas, só a contagem afetada.
-pub fn is_plain_dml(sql: &str) -> bool {
-    let (words, multiple) = scan_words(sql);
-    let Some(first) = words.first() else { return false };
-    matches!(first.as_str(), "INSERT" | "UPDATE" | "DELETE" | "MERGE") && !multiple && !words.iter().any(|w| w == "OUTPUT")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn classifies_dml() {
-        assert!(is_plain_dml("UPDATE t SET a = 1 WHERE id = 2"));
-        assert!(is_plain_dml("-- c\nINSERT INTO t SELECT * FROM u;"));
-        assert!(is_plain_dml("DELETE FROM t WHERE name = 'x; SELECT 1'"));
-        assert!(!is_plain_dml("UPDATE t SET a = 1; SELECT * FROM t"));
-        assert!(!is_plain_dml("DELETE FROM t OUTPUT deleted.*"));
-        assert!(!is_plain_dml("SELECT * FROM t"));
-        assert!(!is_plain_dml("/* UPDATE */ SELECT 1"));
-        assert!(is_plain_dml("UPDATE [output] SET a = 1"));
+    fn dml_commands() {
+        assert!(is_dml_command(0xC5) && is_dml_command(0xC3) && is_dml_command(0xC4) && is_dml_command(0x117));
+        assert!(!is_dml_command(0xC1));
     }
 
     #[test]

@@ -7,7 +7,7 @@ Este documento fornece um mapa conciso e abrangente da arquitetura, estrutura de
 ## 1. Visão Geral do Projeto
 
 - **Nome**: todo-rs
-- **Tipo**: Aplicativo de produtividade (Tarefas, Notas Rápidas, Timer Pomodoro, cliente HTTP estilo Postman, Formatter JSON e cliente de banco de dados estilo DataGrip) para Desktop.
+- **Tipo**: Aplicativo de produtividade (Tarefas, Notas Rápidas, Timer Pomodoro, cliente HTTP estilo Postman, Formatter JSON e cliente de banco de dados estilo DataGrip — SQL Server, Azure SQL e MongoDB) para Desktop.
 - **Tecnologias**:
   - **Frontend**: HTML5, CSS3 Vanilla (com variáveis CSS e design moderno), JavaScript nativo (ES Modules).
   - **Backend / Desktop Frame**: Rust + Tauri v2.
@@ -30,6 +30,7 @@ todo-rs/
 ├── clean.sh                   # Script para limpar cache de build no Linux (cargo clean)
 ├── clean.ps1                  # Script para limpar cache de build no Windows
 ├── tests/db-utils.test.mjs    # Testes dos utilitários da aba Banco (`node tests/db-utils.test.mjs`)
+├── tests/mongo.test.mjs       # Testes do parser mongosh e da conversão de documentos (`node tests/mongo.test.mjs`)
 ├── src/                       # Frontend da Aplicação
 │   ├── index.html             # Estrutura HTML principal (views, modais e barra de navegação)
 │   ├── theme.css              # Tokens de tema claro/escuro (html[data-theme]) e paleta de realce --syn-*
@@ -61,6 +62,8 @@ todo-rs/
 │       │   ├── sqlDialect.js  # Banco: dialeto SQL (quoting, literais, paginação OFFSET/FETCH); marcadores DEFAULT/GENERATED
 │       │   ├── sqlSplit.js    # Banco: divide scripts em lotes (GO) e comandos; comando sob o cursor
 │       │   ├── sqlGen.js      # Banco: UPDATE/INSERT/DELETE das alterações pendentes do grid (pela PK original)
+│       │   ├── mongoShell.js  # MongoDB: parser da sintaxe do mongosh → operação JSON (Extended JSON); divisão do script
+│       │   ├── mongoValue.js  # MongoDB: Extended JSON ↔ células, formatação mongosh, updateOne/insertOne/deleteOne do grid
 │       │   ├── gridModel.js   # DataGrid: linhas, visão filtrada/ordenada, pendências, agregados (sem DOM)
 │       │   └── gridExport.js  # DataGrid: TSV/CSV/JSON/Markdown/SQL INSERT e leitura de TSV colado (Excel)
 │       └── components/
@@ -79,7 +82,9 @@ todo-rs/
 │           ├── db.js          # Banco: orquestrador (conexões, abas, log de consultas, menus, atalhos, layout)
 │           ├── dbExplorer.js  # Banco: Database Explorer (árvore lazy conexão → banco → schema → objetos → colunas/chaves)
 │           ├── dbTableTab.js  # Banco: aba de tabela (paginação, WHERE/ORDER BY, edição, Submit/Revert, transação)
-│           ├── dbConsole.js   # Banco: console SQL (Ctrl+Enter, result sets, Saída, cancelar) e aba de DDL
+│           ├── dbConsole.js   # Banco: console (Ctrl+Enter, result sets, Saída, cancelar) e aba de DDL
+│           ├── dbLanguages.js # Banco: adaptadores do console por conexão (SQL | mongosh): divisão, editor, autocomplete
+│           ├── dbMongoTab.js  # Banco: aba de coleção MongoDB (filtro/sort/projeção, edição tipada, JSON)
 │           ├── dbShared.js    # Banco: rodapé com agregados, "copiar como", exportação, controles Tx
 │           ├── dbDialogs.js   # Banco: diálogo de conexão, revisão do SQL antes de gravar
 │           ├── dataGrid.js    # DataGrid genérico virtualizado (2 eixos): seleção estilo Excel, edição, colar, busca
@@ -99,11 +104,13 @@ todo-rs/
         ├── http.rs            # Cliente HTTP (reqwest), cancelamento, cookies, http.json e arquivos
         ├── note_images.rs     # Imagens das notas em note-images/ + protocolo noteimg://
         ├── persist.rs         # Fila de gravação em thread própria (atômica, sem travar a UI)
+        ├── (vendor/tiberius)  # tiberius 0.13 com patch "TodoRS patch" (contagem por comando); ver [patch.crates-io]
         └── db/                # Cliente de banco de dados (aba Banco)
             ├── mod.rs         # Comandos Tauri, sessões (session_id) e cancelamento
             ├── driver.rs      # Traits Driver/Session + tipos neutros (ColumnMeta, ExecEvent, ObjectNode, TableInfo)
             ├── mssql.rs       # SQL Server/Azure SQL via tiberius: conexão, streaming, conversão de tipos
             ├── mssql_meta.rs  # Introspecção (sys.*) e geração de DDL
+            ├── mongo.rs       # MongoDB (driver oficial): Client por conexão, operações, Docs em Extended JSON
             ├── entra.rs       # Login Microsoft Entra interativo (OAuth Auth Code + PKCE, refresh token)
             ├── secrets.rs     # Senhas/tokens no cofre do sistema (keyring)
             └── it_tests.rs    # Testes de integração (precisam de TODORS_MSSQL_TEST)
@@ -157,7 +164,7 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 | `db_disconnect` | `{ prefix }` | `()` | Fecha as sessões com esse prefixo |
 | `db_introspect` | `{ target, path: {kind, schema, name} }` | `Result<Vec<ObjectNode>>` | `databases` / `schemas` / `schema` / `table` / `view` / `procedure` / `function` |
 | `db_table_info` / `db_ddl` | `{ target, schema, name }` / `{ target, path }` | `Result` | Colunas com PK/identity/FK; DDL do objeto |
-| `db_execute` | `{ target, queryId, sql, maxRows?, onEvent: Channel }` | `Result<ExecSummary>` | Result sets em lotes pelo Channel (`result_start`/`rows`/`result_end`) |
+| `db_execute` | `{ target, queryId, sql, maxRows?, onEvent: Channel }` | `Result<ExecSummary>` | Result sets em lotes pelo Channel (`result_start`/`rows`/`docs`/`result_end`); `sql` = SQL ou, no MongoDB, a operação JSON |
 | `db_cancel` | `{ queryId }` | `()` | Cancela fechando o socket (o servidor aborta e desfaz a transação) |
 | `db_tx` | `{ target, action: begin\|commit\|rollback }` | `Result<u32>` | Devolve @@TRANCOUNT |
 | `db_apply` | `{ target, statements, atomic }` | `Result<Vec<u64>>` | Alterações do grid (tudo ou nada quando `atomic`) |
@@ -215,6 +222,8 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 7. **Editor de código**: campos de código (body raw/GraphQL e scripts do HTTP, Formatter JSON, console SQL) usam `codeEditor()`, com numeração de linhas, realce, Tab/Shift+Tab e Enter com recuo.
 
 8. **Banco de Dados (cópia do DataGrip)**:
+   - **Registros afetados**: toda escrita mostra "(N) registro(s) afetado(s)" na Saída do console e no log (`affectedText`). No SQL Server a contagem vem do DONE de cada comando filtrado por tipo (INSERT/UPDATE/DELETE/MERGE), via `simple_query_counted` do tiberius vendorizado — exata em qualquer script (transação, variáveis, CTE), sem contar SELECT nem atribuições. No MongoDB vem de inserted/modified/deleted.
+   - **MongoDB** (driver `mongo`): connection string (Atlas `mongodb+srv://`, servidor/replica set, Azure Cosmos DB) salva SEM a senha (vai para o cofre). Console em sintaxe do mongosh (`mongoShell.js` → operação JSON → `mongo.rs`); grid com campos de topo como colunas (descobertas no streaming), campo ausente ≠ NULL, edição preserva o tipo BSON original (long, double, Decimal128, ObjectId, datas). Gravação por `_id`, em ordem e sem transação. Views são somente leitura.
    - SQL Server e Azure SQL (driver `tiberius`, TLS rustls). Auth: login SQL ou Microsoft Entra interativo/MFA. Senhas e tokens NUNCA vão para JSON (cofre do sistema via `keyring`).
    - Novo banco = implementar `Driver`/`Session` em `src-tauri/src/db/` + um dialeto em `sqlDialect.js`. O frontend só conhece `ColumnMeta.kind` (int, num, dec, bool, str, date, time, datetime, guid, bin, xml, other).
    - Valores sem perder precisão: bigint fora do intervalo seguro, decimal/money e datas chegam como string; binário como `0x…` (truncado em 4 KB → somente leitura).
@@ -235,7 +244,7 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 - Ao adicionar novos recursos JS, coloque a lógica em componentes desacoplados na pasta `src/js/components/`.
 - Mantenha o arquivo `src/main.js` apenas para carregar o estado inicial e vincular ouvintes globais.
 - Sempre rode `./build_linux.sh` ou `cargo check` em `src-tauri` para validar alterações no código Rust ou builds.
-- Banco: `node tests/db-utils.test.mjs` (utilitários JS) e `cargo test` em `src-tauri`; os testes de integração precisam de um SQL Server: `docker run -d -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=TodoRs#Test2026" -p 14333:1433 mcr.microsoft.com/mssql/server:2022-latest` e `TODORS_MSSQL_TEST="localhost,14333,sa,TodoRs#Test2026" cargo test it_ -- --test-threads=1`.
+- Banco: `node tests/db-utils.test.mjs` e `node tests/mongo.test.mjs` (utilitários JS) e `cargo test` em `src-tauri`; MongoDB: `docker run -d -p 27019:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=TodoRs#Mongo2026 mongo:7` e `TODORS_MONGO_TEST="mongodb://admin@localhost:27019/?authSource=admin|TodoRs#Mongo2026" cargo test it_mongo`; os testes de integração precisam de um SQL Server: `docker run -d -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=TodoRs#Test2026" -p 14333:1433 mcr.microsoft.com/mssql/server:2022-latest` e `TODORS_MSSQL_TEST="localhost,14333,sa,TodoRs#Test2026" cargo test it_ -- --test-threads=1`.
 - **Desempenho**: comandos Tauri síncronos rodam na thread da UI. Gravações em disco devem usar `persist::write` (nunca `fs::write` direto num comando), e efeitos caros (ex.: `reg.exe` do autostart) só quando o valor muda.
 - Não salvar em disco ao navegar entre abas: só gravar quando houver alteração pendente.
 - Abas ocultas usam `display: none`. Não usar `content-visibility: hidden` nelas: com a aba JSON grande, todos os frames do app ficam ~45 ms mais lentos.

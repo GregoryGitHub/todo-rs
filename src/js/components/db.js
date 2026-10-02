@@ -11,17 +11,20 @@ import {
   newConsole,
   newTab,
   uid,
+  isMongo,
+  affectedText,
 } from "../utils/dbModel.js";
 import { dialectFor } from "../utils/sqlDialect.js";
 import { saveDbDataApi, dbApi } from "../api.js";
 import { createExplorer } from "./dbExplorer.js";
 import { createTableTab } from "./dbTableTab.js";
+import { createMongoTab } from "./dbMongoTab.js";
 import { createConsoleTab, createDdlTab } from "./dbConsole.js";
 import { connectionDialog, dbConfirm, isDbModalOpen, closeDbModal, sqlPreviewDialog } from "./dbDialogs.js";
 import { attachWordComplete } from "./sqlComplete.js";
 import { enterDesktopMode, exitDesktopMode, minimizeWindow, toggleMaximize } from "./windowMode.js";
 
-// Aba "Banco": cliente de banco de dados estilo DataGrip (SQL Server / Azure SQL).
+// Aba "Banco": cliente de banco de dados estilo DataGrip (SQL Server / Azure SQL e MongoDB).
 // Desktop: Database Explorer | abas de tabelas/consoles | log de consultas.
 // Bandeja: só a lista de conexões, com atalho para o modo desktop.
 
@@ -206,7 +209,7 @@ async function editConnection(c) {
     onSave: async (next, password) => {
       const i = data().connections.findIndex((x) => x.id === c.id);
       if (i < 0) return;
-      const authChanged = JSON.stringify(next.auth) !== JSON.stringify(c.auth) || next.host !== c.host || next.port !== c.port || next.instance !== c.instance;
+      const authChanged = JSON.stringify(next.auth) !== JSON.stringify(c.auth) || next.host !== c.host || next.port !== c.port || next.instance !== c.instance || next.driver !== c.driver || next.uri !== c.uri || next.tls_insecure !== c.tls_insecure;
       data().connections[i] = next;
       if (password !== undefined) await dbApi.setPassword(c.id, password).catch((e) => toast(String(e)));
       if (next.auth.kind !== "entra" && c.auth.kind === "entra") await dbApi.forgetSecrets(c.id);
@@ -272,6 +275,10 @@ async function completions(c, database) {
     entry = {
       columns: new Map(),
       objects: (async () => {
+        if (isMongo(c)) {
+          const colls = await dbApi.introspect(tgt, { kind: "collections" });
+          return colls.map((o) => ({ schema: "", name: o.name, kind: o.kind }));
+        }
         const schemas = await dbApi.introspect(tgt, { kind: "schemas" });
         const lists = await Promise.all(schemas.filter((s) => s.rows).map((s) => dbApi.introspect(tgt, { kind: "schema", schema: s.name }).catch(() => [])));
         return lists.flat().map((o) => ({ schema: o.schema, name: o.name, kind: o.kind }));
@@ -313,10 +320,15 @@ function log(entry) {
 function appendLog(e) {
   const stamp = e.at.toLocaleTimeString("pt-BR") + "." + String(e.at.getMilliseconds()).padStart(3, "0");
   const where = `${e.conn ? connLabel(e.conn) : ""}${e.database ? `/${e.database}` : ""}`;
+  // Escritas: "(N) registro(s) afetado(s)"; leituras: linhas/documentos retornados.
+  const parts = [];
+  if (e.affected !== null && e.affected !== undefined) parts.push(affectedText(e.affected));
+  if (e.rows !== null && e.rows !== undefined) parts.push(`${Number(e.rows).toLocaleString("pt-BR")} ${e.lang === "javascript" ? "documento(s)" : "linha(s)"}`);
+  const timing = `${e.ms !== undefined ? ` em ${e.ms} ms` : ""}${e.fetchMs ? ` (execução + leitura: ${e.total} ms)` : ""}`;
   const result = e.error
     ? el("div.dbl-res.err", {}, e.error)
-    : e.rows !== null && e.rows !== undefined
-      ? el("div.dbl-res", {}, `${Number(e.rows).toLocaleString("pt-BR")} linha(s)${e.ms !== undefined ? ` em ${e.ms} ms` : ""}${e.fetchMs ? ` (execução + leitura: ${e.total} ms)` : ""}`)
+    : parts.length
+      ? el("div.dbl-res", { class: `dbl-res${e.affected !== null && e.affected !== undefined ? " affected" : ""}` }, parts.join(" · ") + timing)
       : null;
   const row = el(
     "div.dbl",
@@ -328,11 +340,12 @@ function appendLog(e) {
           e.conn ? { label: "Abrir no console", icon: "fa-solid fa-terminal", run: () => openConsole(conn(e.conn.id) || e.conn, e.database, e.sql) } : null,
         ]);
       },
-      ondblclick: () => sqlPreviewDialog({ title: "SQL executado", sql: e.sql, onCopy: (s) => copy(s, "SQL copiado"), onOpenInConsole: e.conn ? (s) => openConsole(conn(e.conn.id) || e.conn, e.database, s) : null }),
+      ondblclick: () =>
+        sqlPreviewDialog({ title: e.lang === "javascript" ? "Comando executado" : "SQL executado", sql: e.sql, lang: e.lang || "sql", onCopy: (s) => copy(s, "Copiado"), onOpenInConsole: e.conn ? (s) => openConsole(conn(e.conn.id) || e.conn, e.database, s) : null }),
     },
     el("span.dbl-time", {}, `[${stamp}]`),
     el("span.dbl-where", {}, `${where}>`),
-    el("pre.dbl-sql", { html: highlightCode(e.sql.length > 2000 ? e.sql.slice(0, 2000) + "\n…" : e.sql, "sql") }),
+    el("pre.dbl-sql", { html: highlightCode(e.sql.length > 2000 ? e.sql.slice(0, 2000) + "\n…" : e.sql, e.lang || "sql") }),
     result,
   );
   logListEl.append(row);
@@ -354,6 +367,7 @@ function tabTitle(t) {
     return { title: doc?.name || "console", where: `${where}${doc?.database ? `/${doc.database}` : ""}`, icon: "fa-solid fa-terminal" };
   }
   if (t.type === "ddl") return { title: t.name, where, icon: "fa-solid fa-code" };
+  if (t.kind === "collection") return { title: t.name, where: `${where}/${t.database}`, icon: "fa-solid fa-layer-group" };
   return { title: t.name, where, icon: t.kind === "view" ? "fa-solid fa-eye" : "fa-solid fa-table" };
 }
 
@@ -453,7 +467,7 @@ const tabCtx = {
 function controllerFor(t) {
   let ctl = controllers.get(t.id);
   if (ctl) return ctl;
-  if (t.type === "table") ctl = createTableTab(tabCtx, t);
+  if (t.type === "table") ctl = isMongo(conn(t.conn_id)) ? createMongoTab(tabCtx, t) : createTableTab(tabCtx, t);
   else if (t.type === "ddl") ctl = createDdlTab(tabCtx, t);
   else {
     const doc = data().consoles.find((x) => x.id === t.console_id);
@@ -598,7 +612,9 @@ function newConsoleForSelection() {
   const fromTab = activeTab();
   const c = conn(node?.connId) || conn(fromTab?.conn_id) || data().connections[0];
   if (!c) return newConnectionDialog();
-  openConsole(c, node?.database || fromTab?.database || c.database);
+  // O banco só vem da aba ativa se ela for da mesma conexão.
+  const tabDb = fromTab?.conn_id === c.id ? fromTab.database : "";
+  openConsole(c, (node?.connId === c.id && node.database) || tabDb || c.database);
 }
 
 function scriptMenu(ref, x, y) {
@@ -645,7 +661,7 @@ function renderHeader() {
   }
   const st = status(c.id);
   titleEl.textContent = connLabel(c);
-  subEl.textContent = st.info ? `${st.info.product} ${st.info.version.split(".").slice(0, 2).join(".")} · ${t.database || st.info.database}` : c.host;
+  subEl.textContent = st.info ? `${st.info.product} ${st.info.version.split(".").slice(0, 2).join(".")} · ${t.database || st.info.database}` : isMongo(c) ? "MongoDB" : c.host;
   if (c.color) appEl.style.setProperty("--conn", c.color);
   else appEl.style.removeProperty("--conn");
 }
@@ -670,9 +686,9 @@ function renderCompact() {
           },
         },
         el("span", { class: `dbx-state ${st.state}` }),
-        icon(/\.database\.windows\.net$/i.test(c.host) ? "fa-brands fa-microsoft" : "fa-solid fa-server"),
+        icon(isMongo(c) ? "fa-solid fa-leaf" : /\.database\.windows\.net$/i.test(c.host) ? "fa-brands fa-microsoft" : "fa-solid fa-server"),
         el("span.db-compact-name", {}, connLabel(c)),
-        el("span.db-compact-host", {}, c.database || c.host),
+        el("span.db-compact-host", {}, c.database || (isMongo(c) ? "MongoDB" : c.host)),
       ),
     );
   }

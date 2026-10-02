@@ -32,6 +32,8 @@ const KIND_ICONS = {
   guid: "fa-solid fa-fingerprint",
   bin: "fa-solid fa-file-zipper",
   xml: "fa-solid fa-code",
+  oid: "fa-solid fa-fingerprint",
+  json: "fa-solid fa-diagram-project",
   other: "fa-solid fa-circle-question",
 };
 
@@ -43,6 +45,8 @@ function measure(text, font) {
 }
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/** Retorno de setSelectedTo para "não alterar esta célula" (undefined é um valor: campo ausente). */
+const SKIP = Symbol("skip");
 
 /**
  * opts:
@@ -53,6 +57,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
  *  - onStatus({ rows, total, selection, pending }): rodapé
  *  - onError(message)
  *  - onSubmit(): Ctrl+Enter no grid (enviar alterações)
+ *  - parseValue(text, column, r, c): texto editado → valor (padrão: parseInput pela classe da coluna)
+ *  - editText(value, column, r, { expanded }): texto inicial do editor (padrão: o valor como texto)
  */
 export function createDataGrid(opts = {}) {
   const model = new GridModel();
@@ -185,7 +191,8 @@ export function createDataGrid(opts = {}) {
   }
 
   function cellText(value) {
-    if (value === null || value === undefined) return '<span class="dg-null">&lt;null&gt;</span>';
+    if (value === undefined) return ""; // campo ausente (documentos)
+    if (value === null) return '<span class="dg-null">&lt;null&gt;</span>';
     if (isMarker(value)) return `<span class="dg-marker">${escapeHtml(String(value))}</span>`;
     let s = typeof value === "boolean" ? (value ? "1" : "0") : String(value);
     if (s.length > CELL_TEXT_LIMIT) s = s.slice(0, CELL_TEXT_LIMIT) + "…";
@@ -391,6 +398,10 @@ export function createDataGrid(opts = {}) {
 
   // ---------- Edição ----------
 
+  const parseCell = (text, c, r) => (opts.parseValue ? opts.parseValue(text, model.columns[c], r, c) : parseInput(text, model.columns[c].kind));
+  const textOf = (value, c, r, expanded = false) =>
+    opts.editText ? opts.editText(value, model.columns[c], r, { expanded }) : value === null || value === undefined || isMarker(value) ? "" : plainText(value);
+
   function columnEditable(c, r) {
     const col = model.columns[c];
     if (!editable || !col || col.is_identity || col.is_computed || model.deleted.has(r)) return false;
@@ -408,13 +419,15 @@ export function createDataGrid(opts = {}) {
     }
     const v = cell.value;
     if (typeof v === "string" && (v.length > 2000 || (v.includes("\n") && initial === null))) return openValueFor(active);
+    // Subdocumentos/arrays são editados no editor de valor (texto identado).
+    if (cell.column.kind === "json" && initial === null && v !== undefined && v !== null) return openValueFor(active);
     ensureVisible(active.v, active.d);
     editor.open({
       left: rnW + xs[active.d],
       top: HH + active.v * RH,
       width: widths[cell.c],
       height: RH,
-      text: initial ?? (v === null || isMarker(v) ? "" : plainText(v)),
+      text: initial ?? textOf(v, cell.c, cell.r),
       selectAll: initial === null,
     });
   }
@@ -424,7 +437,7 @@ export function createDataGrid(opts = {}) {
     if (!cell) return true;
     let value;
     try {
-      value = parseInput(text, cell.column.kind);
+      value = parseCell(text, cell.c, cell.r);
     } catch (e) {
       opts.onError?.(e.message);
       return false;
@@ -451,11 +464,11 @@ export function createDataGrid(opts = {}) {
       host: root,
       title: col.name,
       subtitle: `${col.full_type || col.type || ""} · linha ${pos.v + 1}`,
-      text: text ?? (value === null || isMarker(value) ? "" : plainText(value)),
+      text: text ?? textOf(value, c, r, true),
       readOnly: !canEdit,
       onSave: (t) => {
         try {
-          if (model.setCell(r, c, parseInput(t, col.kind))) changed();
+          if (model.setCell(r, c, parseCell(t, c, r))) changed();
         } catch (e) {
           opts.onError?.(e.message);
         }
@@ -481,8 +494,8 @@ export function createDataGrid(opts = {}) {
     let blocked = 0;
     forEachSelectedCell((r, c) => {
       if (!columnEditable(c, r)) return blocked++;
-      const value = valueFor(model.columns[c]);
-      if (value === undefined) return blocked++;
+      const value = valueFor(model.columns[c], r, c);
+      if (value === SKIP) return blocked++;
       if (model.setCell(r, c, value)) any = true;
     });
     if (blocked && !any) opts.onError?.("Células selecionadas não podem receber esse valor");
@@ -490,7 +503,7 @@ export function createDataGrid(opts = {}) {
   }
 
   function setNullSelected() {
-    setSelectedTo((col) => (col.nullable === false ? undefined : null));
+    setSelectedTo((col) => (col.nullable === false ? SKIP : null));
   }
 
   function setDefaultSelected() {
@@ -573,11 +586,11 @@ export function createDataGrid(opts = {}) {
     const start = { ...active };
     // Um único valor colado numa seleção maior preenche a seleção inteira.
     if (data.length === 1 && data[0].length === 1 && ranges.length === 1 && (ranges[0].v1 > ranges[0].v0 || ranges[0].d1 > ranges[0].d0)) {
-      return setSelectedTo((col) => {
+      return setSelectedTo((col, r, c) => {
         try {
-          return parseInput(data[0][0], col.kind);
+          return parseCell(data[0][0], c, r);
         } catch {
-          return undefined;
+          return SKIP;
         }
       });
     }
@@ -600,7 +613,7 @@ export function createDataGrid(opts = {}) {
           continue;
         }
         try {
-          model.setCell(r, c, parseInput(data[i][j], model.columns[c].kind));
+          model.setCell(r, c, parseCell(data[i][j], c, r));
         } catch {
           errors++;
         }
@@ -1103,6 +1116,20 @@ export function createDataGrid(opts = {}) {
       model.appendRows(rows);
       refreshAll();
     },
+    /** Colunas que apareceram depois (documentos com campos novos). */
+    addColumns(cols) {
+      if (!cols.length) return;
+      const first = model.columns.length;
+      model.addColumns(cols);
+      font = `12px ${getComputedStyle(root).getPropertyValue("--nt-mono").trim() || "monospace"}`;
+      cols.forEach((_, i) => {
+        order.push(first + i);
+        widths[first + i] = model.view.length ? defaultWidth(first + i) : 140;
+      });
+      refreshAll();
+    },
+    /** Aplica valueFor(column, r, c) às células selecionadas editáveis (ex.: remover campo). */
+    setSelected: (valueFor) => setSelectedTo(valueFor),
     setRows(rows) {
       model.setData(model.columns, rows);
       ranges = [];

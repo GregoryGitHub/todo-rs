@@ -85,7 +85,8 @@ function guessLang(text) {
       JSON.parse(t);
       return "json";
     } catch {
-      /* não é JSON */
+      // Sintaxe do mongosh (chaves sem aspas, ObjectId(...)): realce de JavaScript.
+      return "javascript";
     }
   }
   if (/^<[\w?!]/.test(t)) return "xml";

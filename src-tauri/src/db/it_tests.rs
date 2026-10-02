@@ -44,7 +44,7 @@ impl Collect {
 }
 
 fn config(database: &str) -> Option<(ConnConfig, String)> {
-    let spec = std::env::var("TODORS_MSSQL_TEST").ok()?;
+    let spec = std::env::var("TODORS_MSSQL_TEST").ok().filter(|s| !s.is_empty())?;
     let parts: Vec<&str> = spec.splitn(4, ',').collect();
     let cfg = ConnConfig {
         id: "it".into(),
@@ -58,6 +58,8 @@ fn config(database: &str) -> Option<(ConnConfig, String)> {
         trust_server_certificate: true,
         read_intent: false,
         connect_timeout_s: 15,
+        uri: String::new(),
+        tls_insecure: false,
     };
     Some((cfg, parts[3].to_string()))
 }
@@ -180,6 +182,21 @@ async fn it_end_to_end() {
     let ddl = s.ddl(&ObjectPath { kind: "table".into(), schema: "dbo".into(), name: "orders".into() }).await.unwrap();
     assert!(ddl.contains("IDENTITY(1, 1)") && ddl.contains("FOREIGN KEY") && ddl.contains("INCLUDE ([total])"), "{ddl}");
 
+    // Contagem de registros afetados em scripts (sp_executesql), sem contar linhas de SELECT.
+    let (c, sum) = exec(&mut s, "UPDATE dbo.patients SET weight = weight WHERE 1 = 1; SELECT name FROM dbo.patients; DELETE FROM dbo.orders WHERE 1 = 0").await;
+    assert_eq!(sum.rows_affected, Some(2), "{sum:?}");
+    assert_eq!(c.rows(0).len(), 2);
+    let (_, sum) = exec(&mut s, "DECLARE @n int = 2; IF @n > 1 UPDATE dbo.patients SET weight = weight").await;
+    assert_eq!(sum.rows_affected, Some(2));
+    let (_, sum) = exec(&mut s, "BEGIN TRAN; DELETE FROM dbo.orders WHERE 1 = 0; UPDATE dbo.patients SET weight = weight; COMMIT").await;
+    assert_eq!(sum.rows_affected, Some(2), "transação explícita no lote");
+    let (_, sum) = exec(&mut s, "MERGE dbo.patients AS t USING (SELECT N'Bruno' AS name) AS src ON t.name = src.name WHEN MATCHED THEN UPDATE SET t.weight = t.weight;").await;
+    assert_eq!(sum.rows_affected, Some(1), "MERGE");
+    let (_, sum) = exec(&mut s, "SELECT * FROM dbo.patients; DECLARE @x int = 1; SET @x = 2;").await;
+    assert_eq!(sum.rows_affected, None, "sem DML: sem contagem");
+    let (_, sum) = exec(&mut s, "WITH x AS (SELECT TOP 1 id FROM dbo.patients ORDER BY name) UPDATE p SET weight = weight FROM dbo.patients p JOIN x ON x.id = p.id").await;
+    assert_eq!(sum.rows_affected, Some(1));
+
     // apply: transação própria, tudo ou nada.
     let err = s
         .apply(&["UPDATE dbo.patients SET name = N'X' WHERE name = N'Bruno'".into(), "INSERT INTO dbo.orders (patient_id, total) VALUES (NEWID(), 1)".into()], true)
@@ -217,3 +234,114 @@ async fn it_end_to_end() {
     s.close().await;
 }
 
+
+// ---------- MongoDB ----------
+// docker run -d -p 27019:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=TodoRs#Mongo2026 mongo:7
+// TODORS_MONGO_TEST="mongodb://admin@localhost:27019/?authSource=admin|TodoRs#Mongo2026" cargo test it_mongo
+
+async fn mongo_session(database: &str) -> Option<Box<dyn Session>> {
+    let spec = std::env::var("TODORS_MONGO_TEST").ok().filter(|s| !s.is_empty())?;
+    let (uri, pw) = spec.split_once('|').unwrap();
+    let cfg = ConnConfig {
+        id: "it-mongo".into(),
+        driver: "mongo".into(),
+        host: String::new(),
+        port: None,
+        instance: None,
+        database: database.into(),
+        auth: AuthConfig { kind: "sql".into(), user: String::new(), tenant: String::new(), client_id: String::new() },
+        encrypt: "on".into(),
+        trust_server_certificate: false,
+        read_intent: false,
+        connect_timeout_s: 10,
+        uri: uri.into(),
+        tls_insecure: false,
+    };
+    Some(driver_for("mongo").unwrap().connect(&cfg, database, Secret::Password(pw.into())).await.expect("connect mongo"))
+}
+
+fn docs(c: &Collect, index: usize) -> Vec<Value> {
+    c.0.iter()
+        .filter_map(|e| match e {
+            ExecEvent::Docs { index: i, docs } if *i == index => Some(docs.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[tokio::test]
+async fn it_mongo_end_to_end() {
+    let Some(mut s) = mongo_session("todors_it").await else {
+        eprintln!("TODORS_MONGO_TEST não definido; teste ignorado");
+        return;
+    };
+    let info = s.server_info().await.unwrap();
+    assert_eq!(info.dialect, "mongo");
+    assert!(!info.version.is_empty());
+
+    exec(&mut s, r#"{"op":"drop","collection":"patients"}"#).await;
+    let (_, sum) = exec(
+        &mut s,
+        r#"{"op":"insertMany","collection":"patients","documents":[
+            {"_id":{"$oid":"65f1a2b3c4d5e6f708192a3b"},"name":"Ana","age":30,"weight":{"$numberDouble":"61.0"},"big":{"$numberLong":"9007199254740993"},"born":{"$date":"1994-05-01T00:00:00Z"},"tags":["a","b"],"addr":{"city":"Rio"}},
+            {"name":"Bruno","age":41,"price":{"$numberDecimal":"10.50"}},
+            {"name":"Caio","age":17}
+        ]}"#,
+    )
+    .await;
+    assert_eq!(sum.rows_affected, Some(3));
+
+    // find com filtro, ordenação, projeção e limite do console
+    let mut sink = Collect(Vec::new());
+    let sum = s
+        .execute(r#"{"op":"find","collection":"patients","filter":{"age":{"$gte":18}},"sort":{"age":-1},"projection":{"name":1,"age":1}}"#, &mut sink, Some(1))
+        .await
+        .unwrap();
+    assert!(sum.truncated);
+    assert_eq!(docs(&sink, 0).len(), 1);
+    assert_eq!(docs(&sink, 0)[0]["name"], json!("Bruno"));
+
+    let (c, _) = exec(&mut s, r#"{"op":"find","collection":"patients","filter":{"_id":{"$oid":"65f1a2b3c4d5e6f708192a3b"}}}"#).await;
+    let ana = &docs(&c, 0)[0];
+    assert_eq!(ana["_id"], json!({ "$oid": "65f1a2b3c4d5e6f708192a3b" }));
+    assert_eq!(ana["big"], json!({ "$numberLong": "9007199254740993" }));
+    assert_eq!(ana["weight"], json!({ "$numberDouble": "61.0" }));
+    assert!(ana["born"]["$date"].is_string(), "{ana}");
+    assert_eq!(ana["addr"], json!({ "city": "Rio" }));
+
+    // aggregate, count, distinct
+    let (c, _) = exec(&mut s, r#"{"op":"aggregate","collection":"patients","pipeline":[{"$group":{"_id":null,"total":{"$sum":"$age"}}}]}"#).await;
+    assert_eq!(docs(&c, 0)[0]["total"], json!(88));
+    let (c, _) = exec(&mut s, r#"{"op":"countDocuments","collection":"patients","filter":{"age":{"$lt":18}}}"#).await;
+    assert_eq!(docs(&c, 0)[0]["count"], json!(1));
+    let (c, _) = exec(&mut s, r#"{"op":"distinct","collection":"patients","field":"name"}"#).await;
+    assert_eq!(docs(&c, 0).len(), 3);
+
+    // edição como o grid faz: updateOne por _id preservando o tipo
+    let affected = s
+        .apply(&[r#"{"op":"updateOne","collection":"patients","filter":{"_id":{"$oid":"65f1a2b3c4d5e6f708192a3b"}},"update":{"$set":{"weight":{"$numberDouble":"62.0"},"name":"Ana Lú"}}}"#.into()], true)
+        .await
+        .unwrap();
+    assert_eq!(affected, vec![1]);
+    let (c, _) = exec(&mut s, r#"{"op":"find","collection":"patients","filter":{"name":"Ana Lú"}}"#).await;
+    assert_eq!(docs(&c, 0)[0]["weight"], json!({ "$numberDouble": "62.0" }));
+
+    // erro de operação
+    let err = s.apply(&[r#"{"op":"insertOne","collection":"patients","document":{"_id":{"$oid":"65f1a2b3c4d5e6f708192a3b"}}}"#.into()], true).await.unwrap_err();
+    assert!(err.contains("E11000") || err.contains("duplicate"), "{err}");
+
+    // introspecção e DDL
+    exec(&mut s, r#"{"op":"createIndex","collection":"patients","keys":{"name":1},"options":{"unique":true}}"#).await;
+    let dbs = s.introspect(&ObjectPath { kind: "databases".into(), schema: String::new(), name: String::new() }).await.unwrap();
+    assert!(dbs.iter().any(|d| d.name == "todors_it" && d.flag));
+    let colls = s.introspect(&ObjectPath { kind: "collections".into(), schema: String::new(), name: String::new() }).await.unwrap();
+    assert!(colls.iter().any(|c| c.name == "patients"));
+    let fields = s.introspect(&ObjectPath { kind: "collection".into(), schema: String::new(), name: "patients".into() }).await.unwrap();
+    assert!(fields.iter().any(|f| f.kind == "field" && f.name == "age" && f.detail == "int"));
+    assert!(fields.iter().any(|f| f.kind == "index" && f.name == "name_1" && f.flag));
+    let info = s.table_info("", "patients").await.unwrap();
+    assert!(info.columns[0].is_pk);
+    let ddl = s.ddl(&ObjectPath { kind: "collection".into(), schema: String::new(), name: "patients".into() }).await.unwrap();
+    assert!(ddl.contains("createIndex({\"name\":1}"), "{ddl}");
+}

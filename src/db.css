@@ -1110,7 +1110,8 @@ body.db-resizing-y * {
 }
 
 .dg-rn.sel {
-  background: var(--db-sel-strong);
+  /* Sólido: a coluna é fixa e o conteúdo rolado passa por baixo dela. */
+  background: linear-gradient(var(--db-sel-strong), var(--db-sel-strong)), var(--nt-bg);
   color: var(--nt-text);
 }
 
@@ -2047,4 +2048,81 @@ body.db-resizing-y * {
   color: var(--nt-muted);
   text-align: center;
   padding: 10px;
+}
+
+/* ---------- MongoDB ---------- */
+
+.db-driver-switch {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: 9px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.db-driver {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--nt-text-2) !important;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.db-driver:hover {
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.db-driver.on {
+  background: var(--c-elevated);
+  color: var(--nt-text) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, calc(0.3 * var(--shade-k)));
+}
+
+.db-driver .fa-leaf {
+  color: #22c55e;
+}
+
+.db-mongo .db-connstr {
+  min-height: 62px;
+}
+
+.dg-c.k-oid {
+  color: var(--syn-key);
+}
+
+.dg-c.k-json {
+  color: var(--syn-builtin);
+}
+
+.dbx-row.k-collection .dbx-icon {
+  color: #22c55e;
+}
+
+.dbx-row.k-mview .dbx-icon {
+  color: #a78bfa;
+}
+
+.dbx-row.k-field .dbx-icon {
+  color: var(--nt-muted);
+}
+
+.dbx-row.k-field.flag .dbx-icon {
+  color: #eab308;
+}
+
+.dbx-row.k-conn .fa-leaf.dbx-icon {
+  color: #22c55e;
+}
+
+.dbl-res.affected {
+  color: var(--db-warn);
 }

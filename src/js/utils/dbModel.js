@@ -18,7 +18,7 @@ export function normalizeConnection(c = {}) {
   return {
     id: c.id || uid(),
     name: String(c.name || ""),
-    driver: c.driver || "mssql",
+    driver: c.driver === "mongo" ? "mongo" : "mssql",
     host: String(c.host || ""),
     port: Number.isInteger(c.port) ? c.port : c.port === null ? null : 1433,
     instance: String(c.instance || ""),
@@ -35,14 +35,23 @@ export function normalizeConnection(c = {}) {
     connect_timeout_s: Number(c.connect_timeout_s) > 0 ? Number(c.connect_timeout_s) : 15,
     color: CONN_COLORS.includes(c.color) ? c.color : "",
     read_only: !!c.read_only,
+    /** MongoDB: connection string sem a senha (que fica no cofre). */
+    uri: String(c.uri || ""),
+    tls_insecure: !!c.tls_insecure,
     /** Bancos visíveis no Explorer (vazio = todos). */
     databases_filter: Array.isArray(c.databases_filter) ? c.databases_filter.map(String) : [],
   };
 }
 
+export const isMongo = (c) => c?.driver === "mongo";
+
 /** Nome exibido: o salvo ou "host/banco". */
 export function connLabel(c) {
   if (c.name.trim()) return c.name.trim();
+  if (isMongo(c)) {
+    const host = parseMongoUri(c.uri).hosts.split(",")[0] || "mongodb";
+    return c.database ? `${host}/${c.database}` : host;
+  }
   const host = c.host.replace(/\.database\.windows\.net$/i, "") || "nova conexão";
   return c.database ? `${host}/${c.database}` : host;
 }
@@ -65,6 +74,8 @@ export function connConfig(c) {
     trust_server_certificate: c.trust_server_certificate,
     read_intent: c.read_intent,
     connect_timeout_s: c.connect_timeout_s,
+    uri: c.uri.trim(),
+    tls_insecure: c.tls_insecure,
   };
 }
 
@@ -98,6 +109,8 @@ function normalizeTab(t = {}) {
     console_id: String(t.console_id || ""),
     where: String(t.where || ""),
     order_by: String(t.order_by || ""),
+    /** MongoDB: projeção da aba de coleção. */
+    projection: String(t.projection || ""),
   };
 }
 
@@ -135,6 +148,11 @@ export function newConsole(conn, database) {
 
 export function newTab(t) {
   return normalizeTab({ id: uid(), ...t });
+}
+
+/** Mensagem padrão de escrita (SQL e MongoDB): "(5) registro(s) afetado(s)". */
+export function affectedText(n) {
+  return `(${Number(n).toLocaleString("pt-BR")}) registro(s) afetado(s)`;
 }
 
 export function addHistory(data, entry) {
@@ -206,4 +224,33 @@ export function parseConnectionString(text) {
   if (timeout && /^\d+$/.test(timeout)) patch.connect_timeout_s = Number(timeout);
   if (!Object.keys(patch.auth).length) delete patch.auth;
   return { patch, password: pick("password", "pwd") };
+}
+
+/** Host de uma conexão MongoDB que é Atlas/Cosmos (para o rótulo). */
+export function mongoFlavor(uri) {
+  const u = uri.toLowerCase();
+  if (u.includes("cosmos.azure.com") || u.includes("documents.azure.com")) return "Azure Cosmos DB";
+  if (u.includes(".mongodb.net")) return "MongoDB Atlas";
+  return "MongoDB";
+}
+
+/**
+ * Separa uma connection string MongoDB: devolve a URI sem a senha (para salvar), o usuário,
+ * a senha (para o cofre), os hosts e o banco padrão do caminho.
+ */
+export function parseMongoUri(text) {
+  const raw = String(text || "").trim();
+  const m = /^(mongodb(?:\+srv)?:\/\/)(?:([^@/]*)@)?([^/?]*)(\/[^?]*)?(\?.*)?$/i.exec(raw);
+  if (!m) return { valid: false, uri: raw, user: "", password: undefined, hosts: "", database: "" };
+  const [, scheme, auth, hosts, path = "", query = ""] = m;
+  let user = "";
+  let password;
+  if (auth !== undefined) {
+    const i = auth.indexOf(":");
+    user = decodeURIComponent(i < 0 ? auth : auth.slice(0, i));
+    if (i >= 0) password = decodeURIComponent(auth.slice(i + 1));
+  }
+  const database = decodeURIComponent(path.replace(/^\//, ""));
+  const cleanAuth = user ? `${encodeURIComponent(user)}@` : "";
+  return { valid: true, uri: `${scheme}${cleanAuth}${hosts}${path}${query}`, user, password, hosts, database };
 }
