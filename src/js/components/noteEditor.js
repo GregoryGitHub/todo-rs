@@ -1,6 +1,12 @@
 import { sanitizeHtml, escapeHtml, imageHtml } from "../utils/noteContent.js";
 import { storeImageBlob, storeDataImages } from "../utils/noteImages.js";
 import { openHistory, recordHistory, amendHistory, recordSelection, sealHistory, stepHistory } from "./noteHistory.js";
+import {
+  initCodeBlocks, hydrateCodeBlocks, serializeEditorHtml, serializeRange, createCodeBlock, startEdit as editCodeBlock,
+  isCodeBlock, codeBlockOf, preText, lastCodeLang,
+} from "./noteCode.js";
+import { guessCodeLang } from "../utils/codeBlock.js";
+import { normalizeCodeLang } from "../utils/highlight.js";
 
 // Rich-text editor (contenteditable) modeled on the macOS Notes app.
 
@@ -26,7 +32,8 @@ function selectionRange() {
   const sel = window.getSelection();
   if (!sel.rangeCount) return null;
   const range = sel.getRangeAt(0);
-  return editor.contains(range.commonAncestorContainer) ? range : null;
+  // Dentro de um bloco de código (textarea, visualização) não é seleção do texto rico.
+  return editor.contains(range.commonAncestorContainer) && !codeBlockOf(range.commonAncestorContainer) ? range : null;
 }
 
 function closestInEditor(selector) {
@@ -49,12 +56,24 @@ function placeCaret(el, atEnd = false) {
 
 /** kind/wordStart group typing into undo steps (see noteHistory.js). */
 function changed(kind = "cmd", wordStart = false) {
+  hydrateCodeBlocks(editor); // <pre data-lang> colado ou inserido
   fixBlockNesting();
-  const html = editor.innerHTML;
+  const html = editorHtml();
   recordHistory(html, kind, wordStart);
   onChange(html);
   updateTableTools();
   emitSelectionState();
+}
+
+/** HTML salvo da nota (blocos de código como <pre data-lang>). */
+function editorHtml() {
+  return serializeEditorHtml(editor);
+}
+
+/** Troca o conteúdo do editor (carregar nota, desfazer/refazer). */
+function setEditorHtml(html) {
+  editor.innerHTML = html;
+  hydrateCodeBlocks(editor);
 }
 
 // ---------- Undo / redo ----------
@@ -117,7 +136,7 @@ function restoreSelection(saved) {
 function applyHistory(delta) {
   const entry = stepHistory(delta);
   if (!entry) return;
-  editor.innerHTML = entry.html;
+  setEditorHtml(entry.html);
   restoreSelection(entry.sel);
   onChange(entry.html);
   updateTableTools();
@@ -418,6 +437,166 @@ function updateTableTools() {
   tableTools.style.left = `${Math.max(4, Math.min(maxLeft, tRect.left - sRect.left + scroller.scrollLeft))}px`;
 }
 
+// ---------- Code blocks (noteCode.js) ----------
+
+/** Child of the editor that holds the caret. */
+function topLevelBlock() {
+  const range = selectionRange();
+  let n = range?.startContainer;
+  while (n && n.parentNode !== editor) n = n.parentNode;
+  return n?.nodeType === Node.ELEMENT_NODE ? n : null;
+}
+
+function newParagraph() {
+  const p = document.createElement("p");
+  p.innerHTML = "<br>";
+  return p;
+}
+
+/** Caret collapsed at the very start (or end) of the block's content. */
+function caretAtEdge(block, end) {
+  const range = selectionRange();
+  if (!range?.collapsed) return false;
+  const probe = document.createRange();
+  probe.selectNodeContents(block);
+  if (end) probe.setStart(range.endContainer, range.endOffset);
+  else probe.setEnd(range.startContainer, range.startOffset);
+  return !probe.toString().length && !probe.cloneContents().querySelector("img,table");
+}
+
+/** Caret on the first (or last) visual line of the block. */
+function caretOnEdgeLine(block, end) {
+  const range = selectionRange();
+  if (!range?.collapsed) return false;
+  if (!block.textContent) return true;
+  const r = range.getClientRects()[0] || (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer.getBoundingClientRect() : null);
+  if (!r) return caretAtEdge(block, end);
+  const b = block.getBoundingClientRect();
+  const lh = parseFloat(getComputedStyle(block).lineHeight) || 21;
+  return end ? r.bottom > b.bottom - lh : r.top < b.top + lh;
+}
+
+/** Inserts a code block at the caret (selection/mono paragraph become its content). */
+function insertCodeBlock(lang = null) {
+  if (editor.contentEditable !== "true") return;
+  if (!selectionRange()) {
+    editor.focus();
+    placeCaret(editor.lastElementChild || editor, true);
+  }
+  let text = "";
+  if (!selectionRange().collapsed) {
+    text = window.getSelection().toString();
+    exec("delete");
+  }
+  const block = currentBlock();
+  if (block?.tagName === "PRE" && !text) text = preText(block);
+  let top = block;
+  while (top && top.parentElement !== editor) top = top.parentElement;
+
+  const w = createCodeBlock(text, lang ? normalizeCodeLang(lang) : guessCodeLang(text) || lastCodeLang(), { mode: "code" });
+  const empty = top && !top.textContent.trim() && !top.querySelector("img,table");
+  if (top && top === block && top !== editor.firstElementChild && (top.tagName === "PRE" || empty)) top.replaceWith(w);
+  else if (top) top.after(w);
+  else editor.appendChild(w);
+  if (!w.nextElementSibling) w.after(newParagraph());
+  changed();
+  editCodeBlock(w, "end");
+}
+
+/** Leaves a code block with the keyboard: caret goes to the block before/after it. */
+function exitCodeBlock(w, where) {
+  const before = where === "before";
+  let target = before ? w.previousElementSibling : w.nextElementSibling;
+  const added = !target || isCodeBlock(target);
+  if (added) {
+    target = newParagraph();
+    if (before) w.before(target);
+    else w.after(target);
+  }
+  editor.focus({ preventScroll: true });
+  placeCaret(target, before);
+  target.scrollIntoView({ block: "nearest" });
+  if (added) changed();
+}
+
+function removeCodeBlock(w) {
+  const p = newParagraph();
+  w.replaceWith(p);
+  editor.focus({ preventScroll: true });
+  placeCaret(p);
+  changed();
+}
+
+/** Arrows/Backspace/Delete next to a code block enter it instead of skipping or deleting it. */
+function handleCodeAdjacency(e) {
+  const k = e.key;
+  const back = k === "Backspace" || k === "ArrowUp" || k === "ArrowLeft";
+  const fwd = k === "Delete" || k === "ArrowDown" || k === "ArrowRight";
+  if (!back && !fwd) return false;
+  const block = topLevelBlock();
+  if (!block) return false;
+  const w = back ? block.previousElementSibling : block.nextElementSibling;
+  if (!isCodeBlock(w)) return false;
+  const vertical = k === "ArrowUp" || k === "ArrowDown";
+  if (!(vertical ? caretOnEdgeLine(block, fwd) : caretAtEdge(block, fwd))) return false;
+  e.preventDefault();
+  if ((k === "Backspace" || k === "Delete") && block !== editor.firstElementChild && !block.textContent.trim() && !block.querySelector("img,table")) {
+    block.remove();
+    changed();
+  }
+  editCodeBlock(w, back ? "end" : "start");
+  return true;
+}
+
+/**
+ * Pastes HTML that carries code blocks as whole blocks after the caret's block
+ * (insertHTML would merge the first code line into the current paragraph).
+ */
+function insertBlocks(html) {
+  if (!selectionRange()?.collapsed) exec("delete");
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  hydrateCodeBlocks(tpl.content);
+  const nodes = [];
+  let run = null;
+  for (const n of [...tpl.content.childNodes]) {
+    if (n.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(n.tagName)) {
+      nodes.push(n);
+      run = null;
+    } else if (n.nodeType === Node.ELEMENT_NODE || n.textContent.trim()) {
+      if (!run) nodes.push((run = document.createElement("p")));
+      run.appendChild(n);
+    }
+  }
+  if (!nodes.length) return;
+  const top = topLevelBlock();
+  const empty = top && top !== editor.firstElementChild && !top.textContent.trim() && !top.querySelector("img,table");
+  if (empty) top.replaceWith(...nodes);
+  else if (top) top.after(...nodes);
+  else editor.append(...nodes);
+  let last = nodes[nodes.length - 1];
+  if (isCodeBlock(last)) {
+    if (!last.nextElementSibling || isCodeBlock(last.nextElementSibling)) last.after(newParagraph());
+    last = last.nextElementSibling;
+    placeCaret(last);
+  } else placeCaret(last, true);
+}
+
+/** Copy/cut of a selection that crosses code blocks: copy their source, not the widget UI. */
+function handleCopy(e) {
+  const range = selectionRange();
+  if (!range || range.collapsed) return;
+  const out = serializeRange(range, editor);
+  if (!out) return;
+  e.preventDefault();
+  e.clipboardData.setData("text/html", out.html);
+  e.clipboardData.setData("text/plain", out.text);
+  if (e.type === "cut" && editor.contentEditable === "true") {
+    exec("delete");
+    changed();
+  }
+}
+
 // ---------- Checklist ----------
 
 function handleChecklistClick(e) {
@@ -460,13 +639,14 @@ const SHORTCUTS = {
   B: () => setBlockStyle("body"),
   M: () => setBlockStyle("mono"),
   L: () => applyList("check"),
+  K: () => insertCodeBlock(),
   "&": () => applyList("number"),
   7: () => applyList("number"),
   8: () => applyList("bullet"),
 };
 
 function handleKeydown(e) {
-  if (editor.contentEditable !== "true") return;
+  if (editor.contentEditable !== "true" || codeBlockOf(e.target)) return;
   const mod = e.ctrlKey || e.metaKey;
 
   const lower = e.key.toLowerCase();
@@ -494,6 +674,21 @@ function handleKeydown(e) {
     exec("strikeThrough");
     changed();
     return;
+  }
+
+  if (!mod && !e.altKey && !e.shiftKey && handleCodeAdjacency(e)) return;
+
+  // ```lang + Enter in an empty paragraph creates a code block.
+  if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
+    const block = closestInEditor("p,div");
+    const fence = block && !block.closest("li,td,th,blockquote") && /^```\s*([\w+#.-]*)\s*$/.exec(block.textContent);
+    if (fence && caretAtEdge(block, true)) {
+      e.preventDefault();
+      block.innerHTML = "<br>";
+      placeCaret(block);
+      insertCodeBlock(fence[1] || null);
+      return;
+    }
   }
 
   const cell = closestInEditor("td,th");
@@ -539,7 +734,7 @@ function handleKeydown(e) {
       const li = closestInEditor("ul.checklist > li.checked");
       if (!li) return;
       li.classList.remove("checked");
-      const html = editor.innerHTML;
+      const html = editorHtml();
       amendHistory(html);
       onChange(html);
     });
@@ -568,6 +763,7 @@ function insertLater(range, seq, makeHtml) {
 }
 
 function handlePaste(e) {
+  if (codeBlockOf(e.target)) return; // the code editor's textarea pastes plain text natively
   e.preventDefault();
   if (editor.contentEditable !== "true") return;
   const html = e.clipboardData.getData("text/html");
@@ -589,7 +785,8 @@ function handlePaste(e) {
       insertLater(range, loadSeq, () => storeDataImages(clean));
       return;
     }
-    exec("insertHTML", clean);
+    if (/<pre data-lang=/.test(clean)) insertBlocks(clean);
+    else exec("insertHTML", clean);
   } else if (text) {
     if (closestInEditor("pre,td,th") || !text.includes("\n")) {
       exec("insertText", text);
@@ -656,6 +853,9 @@ export function runCommand(cmd) {
     case "table":
       insertTable();
       return;
+    case "code":
+      insertCodeBlock();
+      return;
     case "bold":
     case "italic":
     case "underline":
@@ -679,9 +879,9 @@ export function runCommand(cmd) {
 export function loadEditor(html, { readOnly = false, focus = false, key = null } = {}) {
   loadSeq++;
   lastTyped = "";
-  editor.innerHTML = html || "<h1><br></h1>";
   editor.contentEditable = readOnly ? "false" : "true";
-  openHistory(readOnly ? null : key, editor.innerHTML);
+  setEditorHtml(html || "<h1><br></h1>");
+  openHistory(readOnly ? null : key, editorHtml());
   tableTools.hidden = true;
   scroller.scrollTop = 0;
   if (focus && !readOnly) {
@@ -703,6 +903,13 @@ export function initEditor({ onInput, onSelection }) {
   exec("defaultParagraphSeparator", "p");
   exec("styleWithCSS", false);
 
+  initCodeBlocks({
+    changed: () => changed(),
+    exit: exitCodeBlock,
+    remove: removeCodeBlock,
+    readOnly: () => editor.contentEditable !== "true",
+  });
+
   editor.addEventListener("input", (e) => {
     normalizeTopLevel();
     const type = e.inputType || "";
@@ -718,6 +925,7 @@ export function initEditor({ onInput, onSelection }) {
   });
   // Undo/Redo from the context menu.
   editor.addEventListener("beforeinput", (e) => {
+    if (codeBlockOf(e.target)) return; // the code editor keeps its native undo
     if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
       e.preventDefault();
       applyHistory(e.inputType === "historyUndo" ? -1 : 1);
@@ -726,6 +934,8 @@ export function initEditor({ onInput, onSelection }) {
   editor.addEventListener("mousedown", sealHistory);
   editor.addEventListener("keydown", handleKeydown);
   editor.addEventListener("paste", handlePaste);
+  editor.addEventListener("copy", handleCopy);
+  editor.addEventListener("cut", handleCopy);
   editor.addEventListener("mousedown", handleChecklistClick);
   editor.addEventListener("drop", (e) => e.preventDefault());
 

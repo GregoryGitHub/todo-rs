@@ -878,6 +878,7 @@ export function initNotes() {
     }
     const cmdBtn = e.target.closest("[data-cmd]");
     if (cmdBtn && !cmdBtn.disabled) {
+      if (cmdBtn.dataset.cmd === "code") closePopover(); // the caret moves into the code editor
       runCommand(cmdBtn.dataset.cmd);
       return;
     }

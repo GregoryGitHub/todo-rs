@@ -328,9 +328,20 @@ impl MongoSession {
         Ok(batch.into_iter().filter_map(|b| b.as_document().cloned()).collect())
     }
 
+    /// Coleções com `options` (usadas no DDL). Usuário sem a ação listCollections no banco
+    /// (só privilégios por coleção) recebe Unauthorized: `authorizedCollections` só vale com
+    /// `nameOnly: true`, que ainda traz `name` e `type` (como faz o Compass).
     async fn collections(&self) -> DbResult<Vec<Document>> {
-        self.first_batch(doc! { "listCollections": 1, "authorizedCollections": true, "nameOnly": false, "cursor": { "batchSize": 100_000 } })
+        match self
+            .first_batch(doc! { "listCollections": 1, "authorizedCollections": true, "nameOnly": false, "cursor": { "batchSize": 100_000 } })
             .await
+        {
+            Ok(list) => Ok(list),
+            Err(full) => self
+                .first_batch(doc! { "listCollections": 1, "authorizedCollections": true, "nameOnly": true, "cursor": { "batchSize": 100_000 } })
+                .await
+                .map_err(|_| full),
+        }
     }
 
     async fn indexes(&self, coll: &str) -> DbResult<Vec<Document>> {

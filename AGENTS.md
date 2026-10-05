@@ -31,6 +31,7 @@ todo-rs/
 ├── clean.ps1                  # Script para limpar cache de build no Windows
 ├── tests/db-utils.test.mjs    # Testes dos utilitários da aba Banco (`node tests/db-utils.test.mjs`)
 ├── tests/mongo.test.mjs       # Testes do parser mongosh e da conversão de documentos (`node tests/mongo.test.mjs`)
+├── tests/code-block.test.mjs  # Testes dos blocos de código das Notas: dobras, realce, linguagens (`node tests/code-block.test.mjs`)
 ├── src/                       # Frontend da Aplicação
 │   ├── index.html             # Estrutura HTML principal (views, modais e barra de navegação)
 │   ├── theme.css              # Tokens de tema claro/escuro (html[data-theme]) e paleta de realce --syn-*
@@ -42,6 +43,7 @@ todo-rs/
 │   ├── code.css               # Editor de código compartilhado (.ce) e tokens de realce (.tok-*)
 │   ├── db.css                 # Aba Banco: Explorer, abas, DataGrid, console, log e diálogos
 │   ├── main.js                # Entry point JS: inicialização e eventos globais
+│   ├── vendor/mermaid/        # Mermaid 11 (UMD, MIT) carregado sob demanda pelos diagramas das Notas (offline)
 │   └── js/                    # Módulos JS organizados por responsabilidade
 │       ├── api.js             # Bridge IPC Tauri (`load_todos`, `save_todos`, etc.)
 │       ├── state.js           # Estado global reativo da aplicação
@@ -49,7 +51,8 @@ todo-rs/
 │       ├── utils/
 │       │   ├── date.js        # Utilitários de data e formatação de tempo
 │       │   ├── dom.js         # Helper `el()` para montar DOM (compartilhado pelos componentes)
-│       │   ├── highlight.js   # Realce de sintaxe por regex: JSON, JavaScript, XML/HTML, GraphQL, SQL, {{variáveis}}
+│       │   ├── highlight.js   # Realce por regex (JSON, JS/TS, XML/HTML, GraphQL, SQL, CSS, Python, Bash, PowerShell, C#/Java/Go/Rust/C++, YAML, diff, Mermaid) + CODE_LANGS
+│       │   ├── codeBlock.js   # Blocos de código das Notas: regiões dobráveis, linhas realçadas, detecção da linguagem
 │       │   ├── audio.js       # Gerador de som WebAudio para o alarme do Pomodoro
 │       │   ├── noteContent.js # HTML das notas: migração, título/preview, sanitização, URLs de imagem
 │       │   ├── noteImages.js  # Imagens das notas: salvar colagens/data: URLs, importar arquivos do Markdown
@@ -73,6 +76,8 @@ todo-rs/
 │           ├── notes.js       # Notas: pastas, lista agrupada, busca, lixeira, menus
 │           ├── noteEditor.js  # Editor rico (contenteditable): estilos, listas, checklist, tabelas, colar imagens
 │           ├── noteHistory.js # Desfazer/refazer das notas (snapshots do HTML, agrupados por palavra)
+│           ├── noteCode.js    # Blocos de código das Notas (widget): linhas numeradas, dobrar/desdobrar, edição no lugar, Mermaid
+│           ├── mermaidView.js # Mermaid: carga sob demanda, fila de renderização, visualização com zoom/arrastar
 │           ├── http.js        # HTTP: coleções/pastas, lista, histórico, envio, menus, atalhos
 │           ├── httpEditor.js  # HTTP: barra de URL, abas da requisição e visualizador da resposta
 │           ├── httpDialogs.js # HTTP: modais (ambientes, coleção, importar, código, runner)
@@ -198,6 +203,8 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
    - O conteúdo é HTML gerado pelo editor (`h1/h2/h3/p/pre/blockquote/ul/ol/li/table/b/i/u/s`). A primeira linha é o título; `title` é derivado e salvo só por compatibilidade. Notas antigas em texto puro são migradas por `normalizeNote`.
    - Listas: `ul` (marcadores), `ul.dashed` (traços), `ol` (numerada), `ul.checklist` com `li.checked`. Tabelas usam `table.nt-table`.
    - Imagens coladas (print, "Copiar imagem", HTML com `data:`) viram arquivos via `save_note_image`; nunca guardar base64 no `notes.json`. `<img>` leva `width/height` (sem reflow) e `loading="lazy"`.
+   - **Blocos de código**: salvos como `<pre data-lang="sql">texto</pre>` (`pre` sem `data-lang` = estilo Monoespaçado). No editor viram um widget `div.nt-code` (`contenteditable=false`, `noteCode.js`): linhas numeradas e realçadas, regiões dobráveis (chaves ou recuo, `codeBlock.js`), clique no código troca para o `codeEditor()` no lugar. Criar: botão `</>`, Ctrl+Shift+K ou ```` ```lang ```` + Enter. O HTML da nota sempre passa por `serializeEditorHtml()` (nunca `editor.innerHTML` direto) e todo HTML carregado/desfeito/colado passa por `hydrateCodeBlocks()`.
+   - **Mermaid**: bloco `data-lang="mermaid"` alterna Visualizar / Código / Live (canto superior direito; Live = código e diagrama lado a lado, redesenhado ao digitar, mantendo o último diagrama válido se houver erro). A visualização tem zoom (Ctrl+roda, botões), arrastar e tela cheia (sobreposição em `document.body`, roda dá zoom, Esc sai). A biblioteca (`src/vendor/mermaid`) só carrega quando há diagrama e segue o tema claro/escuro; só redesenhar quando fonte ou tema mudarem de fato (`data-theme` é regravado com o mesmo valor ao carregar settings), senão zoom/posição se perdem.
    - Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y usam `noteHistory.js`, não o undo nativo (que quebra com as edições diretas no DOM). Toda alteração deve passar por `changed()` no editor para entrar no histórico.
    - Markdown: menu "…" (e menus de contexto) importa `.md` como novas notas e exporta a nota (imagens copiadas para `<nome>.assets/`).
    - Notas vazias são descartadas ao sair delas. Apagar move para "Apagadas Recentemente" (`deleted_at`); após 30 dias são removidas.
@@ -244,6 +251,7 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 - Ao adicionar novos recursos JS, coloque a lógica em componentes desacoplados na pasta `src/js/components/`.
 - Mantenha o arquivo `src/main.js` apenas para carregar o estado inicial e vincular ouvintes globais.
 - Sempre rode `./build_linux.sh` ou `cargo check` em `src-tauri` para validar alterações no código Rust ou builds.
+- Notas: `node tests/code-block.test.mjs` (blocos de código e realce).
 - Banco: `node tests/db-utils.test.mjs` e `node tests/mongo.test.mjs` (utilitários JS) e `cargo test` em `src-tauri`; MongoDB: `docker run -d -p 27019:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=TodoRs#Mongo2026 mongo:7` e `TODORS_MONGO_TEST="mongodb://admin@localhost:27019/?authSource=admin|TodoRs#Mongo2026" cargo test it_mongo`; os testes de integração precisam de um SQL Server: `docker run -d -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=TodoRs#Test2026" -p 14333:1433 mcr.microsoft.com/mssql/server:2022-latest` e `TODORS_MSSQL_TEST="localhost,14333,sa,TodoRs#Test2026" cargo test it_ -- --test-threads=1`.
 - **Desempenho**: comandos Tauri síncronos rodam na thread da UI. Gravações em disco devem usar `persist::write` (nunca `fs::write` direto num comando), e efeitos caros (ex.: `reg.exe` do autostart) só quando o valor muda.
 - Não salvar em disco ao navegar entre abas: só gravar quando houver alteração pendente.

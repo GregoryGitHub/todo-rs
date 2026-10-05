@@ -32,6 +32,8 @@
   --syn-var: #9cdcfe;
   --syn-type: #4ec9b0;
   --syn-plain: #c9c9cb;
+  --syn-ins: #7ee787;
+  --syn-del: #ff7b72;
 }
 
 :root[data-theme="light"] {
@@ -88,6 +90,8 @@
   --syn-var: #001080;
   --syn-type: #267f99;
   --syn-plain: #1d1d1f;
+  --syn-ins: #116329;
+  --syn-del: #b31d28;
 }
 
 :root[data-theme="light"] .http-app {

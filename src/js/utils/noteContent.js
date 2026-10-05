@@ -143,6 +143,12 @@ function cleanNode(node) {
       continue;
     }
 
+    // Language of a pasted code block (ours: data-lang; web pages: class="language-x").
+    const lang =
+      child.tagName === "PRE"
+        ? (child.getAttribute("data-lang") ?? /\b(?:language|lang)-([\w+#.-]+)/.exec(`${child.className} ${child.querySelector("code")?.className || ""}`)?.[1] ?? null)
+        : null;
+
     cleanNode(child);
 
     let el = child;
@@ -177,6 +183,7 @@ function cleanNode(node) {
       (el.tagName === "TABLE" && "nt-table");
     for (const attr of [...el.attributes]) el.removeAttribute(attr.name);
     if (keepClass) el.className = keepClass;
+    if (lang !== null && /^[\w+#.-]{0,24}$/.test(lang)) el.setAttribute("data-lang", lang.toLowerCase() || "text");
   }
 }
 

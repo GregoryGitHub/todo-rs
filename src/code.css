@@ -157,3 +157,5 @@
 .tok-entity { color: var(--syn-entity); }
 .tok-var { color: var(--syn-var); }
 .tok-type { color: var(--syn-type); }
+.tok-ins { color: var(--syn-ins); }
+.tok-del { color: var(--syn-del); }

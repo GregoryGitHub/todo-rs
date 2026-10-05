@@ -502,7 +502,7 @@ body.desktop-mode .compact-only {
   font-weight: 700;
 }
 
-.nt-editor pre {
+.nt-editor pre:not(.nt-code pre) {
   font-family: var(--nt-mono);
   font-size: 0.9em;
   background: rgba(var(--fg-rgb), 0.05);
@@ -1460,4 +1460,509 @@ body.desktop-mode .nt-editor-date {
 
 body.desktop-mode .nt-trash-banner {
   margin: 10px 16px 0;
+}
+
+/* =========================================================================
+   Blocos de código e diagramas Mermaid (js/components/noteCode.js, mermaidView.js).
+   Linhas de 19px e fonte 12px iguais às do codeEditor (.ce), que assume a edição no lugar.
+   ========================================================================= */
+
+.nt-code {
+  --nc-line: 19px;
+  container: nt-code / inline-size;
+  margin: 0.5em 0;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, calc(0.18 * var(--shade-k)));
+  overflow: hidden;
+  white-space: normal;
+  line-height: normal;
+  user-select: none;
+  -webkit-user-select: none;
+  caret-color: var(--nt-text);
+}
+
+.nt-editor .nt-code div {
+  min-height: 0;
+}
+
+.nt-code.editing {
+  border-color: color-mix(in srgb, var(--nt-yellow) 55%, transparent);
+}
+
+.nc-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 5px 0 4px;
+  border-bottom: 1px solid var(--nt-sep);
+  background: rgba(var(--fg-rgb), 0.03);
+  font-size: 12px;
+}
+
+.nc-lang {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.6);
+  font: inherit;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+
+.nc-lang:hover:not(:disabled) {
+  background: rgba(var(--fg-rgb), 0.07);
+  color: var(--nt-text);
+}
+
+.nc-lang:disabled {
+  cursor: default;
+  appearance: none;
+}
+
+.nc-lang option {
+  background: var(--nt-menu-bg);
+  color: var(--nt-text);
+}
+
+.nc-spacer {
+  flex: 1;
+}
+
+.nc-seg {
+  display: none;
+  margin-right: 4px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(var(--fg-rgb), 0.06);
+}
+
+.nt-code.is-mermaid .nc-seg {
+  display: inline-flex;
+}
+
+/* Bloco estreito (bandeja): botões do Mermaid só com ícone. */
+@container nt-code (max-width: 520px) {
+  .nc-seg button span {
+    display: none;
+  }
+}
+
+.nt-code .nc-seg button,
+.nt-code .nc-btn,
+.nt-code .nc-zoom button,
+.nc-fullscreen .nc-zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.55);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.nc-seg button {
+  padding: 0 8px;
+}
+
+.nt-code .nc-seg button.active {
+  background: rgba(var(--fg-rgb), 0.12);
+  color: var(--nt-text);
+}
+
+.nc-btn {
+  width: 26px;
+}
+
+.nc-btn[hidden] {
+  display: none;
+}
+
+.nt-code .nc-seg button:not(.active):hover,
+.nt-code .nc-btn:hover,
+.nt-code .nc-zoom button:hover,
+.nc-fullscreen .nc-zoom button:hover {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: var(--nt-text);
+}
+
+.nt-code .nc-del:hover {
+  color: var(--c-danger-text);
+}
+
+.nt-code.readonly .nc-del {
+  display: none;
+}
+
+/* ---------- Visualização do código (linhas numeradas, dobras) ---------- */
+
+.nc-view {
+  display: flex;
+  font-family: var(--nt-mono);
+  font-size: 12px;
+  line-height: var(--nc-line);
+  font-variant-ligatures: none;
+  tab-size: 2;
+  color: var(--syn-plain);
+}
+
+.nc-gutter {
+  flex-shrink: 0;
+  min-width: calc(var(--nc-ch, 2) * 1ch + 18px);
+  padding: 8px 18px 20px 10px;
+  border-right: 1px solid var(--nt-sep);
+  background: rgba(var(--fg-rgb), 0.02);
+  text-align: right;
+  color: rgba(var(--fg-rgb), 0.26);
+}
+
+.nc-gl {
+  position: relative;
+  height: var(--nc-line);
+}
+
+.nc-f {
+  position: absolute;
+  top: 0;
+  right: -16px;
+  width: 14px;
+  height: var(--nc-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: rgba(var(--fg-rgb), 0.5);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+
+.nc-view:hover .nc-f,
+.nc-gl.folded .nc-f {
+  opacity: 1;
+}
+
+.nc-f:hover {
+  color: var(--nt-text);
+}
+
+.nc-code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 8px 0 20px;
+  cursor: text;
+}
+
+.nc-lines {
+  display: inline-block;
+  min-width: 100%;
+  vertical-align: top;
+}
+
+.nc-l {
+  height: var(--nc-line);
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.nc-l.folded {
+  background: rgba(var(--fg-rgb), 0.035);
+}
+
+.nc-ell {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 4px;
+  line-height: 15px;
+  background: rgba(var(--fg-rgb), 0.12);
+  color: rgba(var(--fg-rgb), 0.7);
+  cursor: pointer;
+}
+
+.nc-ell:hover {
+  background: color-mix(in srgb, var(--nt-yellow) 35%, transparent);
+}
+
+.nc-code::-webkit-scrollbar {
+  height: 10px;
+}
+
+.nc-code::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.16) padding-box;
+}
+
+.nt-code.readonly .nc-code {
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Edição: o codeEditor ocupa o lugar da visualização, sem moldura própria. */
+.nt-code .ce {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.nt-code .ce-gutter pre {
+  padding-right: 18px;
+}
+
+/* ---------- Diagrama Mermaid ---------- */
+
+.nc-diagram {
+  position: relative;
+}
+
+.nc-stage {
+  position: relative;
+  min-height: 140px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(rgba(var(--fg-rgb), 0.07) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.nc-stage.dragging {
+  cursor: grabbing;
+}
+
+.nc-stage[hidden] {
+  display: none;
+}
+
+/* Mesmo contexto de texto do <body>, onde o Mermaid mede os rótulos. */
+.nc-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  font-size: 13px;
+  line-height: normal;
+  white-space: normal;
+  word-wrap: normal;
+}
+
+.nt-editor .nc-canvas p,
+.nc-fullscreen .nc-canvas p {
+  min-height: 0;
+}
+
+.nc-canvas svg {
+  display: block;
+  max-width: none;
+}
+
+/* Rótulo um pouco mais largo que o medido (fonte/zoom): não cortar. */
+.nc-canvas foreignObject {
+  overflow: visible;
+}
+
+.nc-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 8px;
+  background: var(--nt-menu-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, calc(0.35 * var(--shade-k)));
+}
+
+.nc-zoom[hidden] {
+  display: none;
+}
+
+.nc-zoom button {
+  min-width: 24px;
+  padding: 0 5px;
+}
+
+.nc-zoom-val {
+  min-width: 46px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.nc-msg {
+  padding: 14px 16px;
+  font-size: 12.5px;
+  color: rgba(var(--fg-rgb), 0.5);
+  white-space: pre-wrap;
+}
+
+.nc-msg.error {
+  font-family: var(--nt-mono);
+  font-size: 12px;
+  color: var(--c-danger-text);
+}
+
+.nc-msg[hidden] {
+  display: none;
+}
+
+.nc-zoom-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--nt-sep-strong);
+}
+
+/* Tela cheia: sobre a janela inteira do app (fora da nota, para escapar do overflow/container). */
+.nc-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--nt-bg);
+  color: var(--nt-text);
+  animation: ntPop 0.12s ease;
+}
+
+.nc-full-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--nt-sep);
+  font-size: 13px;
+}
+
+.nc-full-title {
+  font-weight: 600;
+}
+
+.nc-full-title i {
+  margin-right: 6px;
+  color: rgba(var(--fg-rgb), 0.55);
+}
+
+.nc-full-hint {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.nc-fullscreen .nc-full-close {
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.6);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.nc-fullscreen .nc-full-close:hover {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: var(--nt-text);
+}
+
+.nc-diagram.full {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nc-diagram.full .nc-stage {
+  flex: 1;
+  height: auto !important;
+}
+
+.nc-diagram.full .nc-zoom {
+  right: 16px;
+  bottom: 16px;
+}
+
+/* ---------- Mermaid live: código e diagrama lado a lado ---------- */
+
+.nc-live {
+  display: flex;
+  height: 380px;
+  min-height: 200px;
+  overflow: hidden;
+  resize: vertical;
+}
+
+.nc-live-code,
+.nc-live-view {
+  position: relative;
+  display: flex;
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.nc-live-code {
+  border-right: 1px solid var(--nt-sep);
+}
+
+.nc-live-code .ce {
+  flex: 1;
+  height: 100%;
+}
+
+.nc-diagram.fill {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nc-diagram.fill .nc-stage {
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+}
+
+@container nt-code (max-width: 560px) {
+  .nc-live {
+    flex-direction: column;
+    height: 560px;
+  }
+
+  .nc-live-code {
+    border-right: none;
+    border-bottom: 1px solid var(--nt-sep);
+  }
+}
+
+/* Erro de sintaxe com um diagrama já desenhado: aviso por cima, o último diagrama continua. */
+.nc-msg.overlay {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  z-index: 2;
+  max-height: 45%;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--c-danger-text) 45%, transparent);
+  border-radius: 7px;
+  background: var(--nt-menu-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, calc(0.35 * var(--shade-k)));
 }

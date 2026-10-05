@@ -1,4 +1,5 @@
 import { escapeHtml } from "./noteContent.js";
+import { normalizeCodeLang } from "./highlight.js";
 
 // Markdown <-> note HTML (the subset the note editor produces, see noteContent.js).
 // Export: h1-h3, p, b/i/s/u, code, pre, blockquote, lists (bullet/numbered/checklist,
@@ -159,7 +160,8 @@ function preMarkdown(pre) {
   const text = pre.textContent.replace(/\n$/, "");
   const runs = text.match(/^(`{3,}|~{3,})/gm) || [];
   const fence = "`".repeat(Math.max(2, ...runs.map((r) => r.length)) + 1);
-  return `${fence}\n${text}\n${fence}`;
+  const lang = pre.dataset.lang && pre.dataset.lang !== "text" ? pre.dataset.lang : "";
+  return `${fence}${lang}\n${text}\n${fence}`;
 }
 
 function blocks(parent, ctx) {
@@ -387,7 +389,9 @@ function parseBlocks(lines) {
         i++;
       }
       i++;
-      out += `<pre>${escapeHtml(code.join("\n")) || "<br>"}</pre>`;
+      // Fenced code = code block of the editor (language from the info string).
+      const lang = normalizeCodeLang(fence[2].trim().split(/\s+/)[0]);
+      out += `<pre data-lang="${escapeHtml(lang)}">${escapeHtml(code.join("\n"))}</pre>`;
       continue;
     }
 
