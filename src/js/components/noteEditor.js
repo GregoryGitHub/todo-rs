@@ -5,6 +5,7 @@ import {
   initCodeBlocks, hydrateCodeBlocks, serializeEditorHtml, serializeRange, createCodeBlock, startEdit as editCodeBlock,
   isCodeBlock, codeBlockOf, preText, lastCodeLang,
 } from "./noteCode.js";
+import { initNoteMenus } from "./noteMenus.js";
 import { guessCodeLang } from "../utils/codeBlock.js";
 import { normalizeCodeLang } from "../utils/highlight.js";
 
@@ -16,13 +17,15 @@ const scroller = document.getElementById("nt-editor-scroll");
 
 const BLOCK_TAGS = new Set(["H1", "H2", "H3", "P", "DIV", "UL", "OL", "PRE", "BLOCKQUOTE", "TABLE"]);
 const STYLE_TAGS = { title: "h1", heading: "h2", subheading: "h3", body: "p", mono: "pre" };
-const AUTO_LISTS = { "-": "dash", "–": "dash", "*": "bullet", "•": "bullet", "1.": "number", "1)": "number", "[]": "check" };
+const AUTO_LISTS = { "-": "dash", "–": "dash", "*": "bullet", "+": "bullet", "•": "bullet", "1.": "number", "1)": "number", "[]": "check", "[ ]": "check" };
+const BLOCK_MARKDOWN = { "#": "title", "##": "heading", "###": "subheading", ">": "quote", "```": "code" };
 const NAV_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 
 let onChange = () => {};
 let onSelectionState = () => {};
 let loadSeq = 0; // bumps on every loadEditor (async pastes check it before inserting)
 let lastTyped = "";
+let menus = { onKeydown: () => false, onInput: () => {}, close: () => {} }; // noteMenus.js
 
 function exec(cmd, value = null) {
   document.execCommand(cmd, false, value);
@@ -67,7 +70,8 @@ function changed(kind = "cmd", wordStart = false) {
 
 /** HTML salvo da nota (blocos de código como <pre data-lang>). */
 function editorHtml() {
-  return serializeEditorHtml(editor);
+  const html = serializeEditorHtml(editor);
+  return html.includes(ZWSP) ? html.replaceAll(ZWSP, "") : html; // caret helper of inline Markdown
 }
 
 /** Troca o conteúdo do editor (carregar nota, desfazer/refazer). */
@@ -611,14 +615,16 @@ function handleChecklistClick(e) {
 
 // ---------- Key handling ----------
 
+/** Markdown typed at the start of a block, then Space: "#", "##", "###", ">", "```", lists. */
 function tryAutoFormat(e) {
   const range = selectionRange();
   if (!range || !range.collapsed) return false;
-  const block = closestInEditor("p,div,h2,h3");
-  if (!block || block.closest("li,td,th,pre")) return false;
+  const block = closestInEditor("p,div,h1,h2,h3");
+  if (!block || block.closest("li,td,th,pre,blockquote")) return false;
   const text = block.textContent;
+  const style = BLOCK_MARKDOWN[text];
   const kind = AUTO_LISTS[text];
-  if (!kind) return false;
+  if (!style && !kind) return false;
   // Caret must be right after the marker.
   const probe = document.createRange();
   probe.selectNodeContents(block);
@@ -626,10 +632,111 @@ function tryAutoFormat(e) {
   if (probe.toString() !== text) return false;
 
   e.preventDefault();
+  sealHistory();
   block.innerHTML = "<br>";
   placeCaret(block);
-  applyList(kind);
+  if (kind) applyList(kind);
+  else if (style === "quote") toggleQuote();
+  else if (style === "code") insertCodeBlock();
+  else {
+    setBlockStyle(style);
+    changed();
+  }
   return true;
+}
+
+// ---------- Inline Markdown (**bold**, *italic*, `code`, ~~strike~~) ----------
+
+const INLINE_MARKDOWN = [
+  [/(^|[\s([{"'])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/, "b"],
+  [/(^|[\s([{"'])__([^_\s](?:[^_]*[^_\s])?)__$/, "b"],
+  [/(^|[\s([{"'])\*([^*\s](?:[^*]*[^*\s])?)\*$/, "i"],
+  [/(^|[\s([{"'])_([^_\s](?:[^_]*[^_\s])?)_$/, "i"],
+  [/(^|[\s([{"'])~~([^~\s](?:[^~]*[^~\s])?)~~$/, "s"],
+  [/(^|[\s([{"'])`([^`]+)`$/, "code"],
+];
+const ZWSP = "​";
+
+/**
+ * After typing a closing marker, turns the Markdown run before the caret into the element.
+ * The caret goes after a zero-width space: otherwise Chrome keeps typing inside the element.
+ * The ZWSP is dropped on the next keystroke and never saved (editorHtml).
+ */
+function tryInlineMarkdown(data) {
+  if (!data || !"*_~`".includes(data.slice(-1))) return false;
+  const sel = window.getSelection();
+  const node = sel.anchorNode;
+  if (!sel.isCollapsed || node?.nodeType !== Node.TEXT_NODE || !selectionRange()) return false;
+  if (node.parentElement.closest("pre,code")) return false;
+  const before = node.data.slice(0, sel.anchorOffset);
+  for (const [re, tag] of INLINE_MARKDOWN) {
+    const m = re.exec(before);
+    if (!m) continue;
+    const range = document.createRange();
+    range.setStart(node, m.index + m[1].length);
+    range.setEnd(node, sel.anchorOffset);
+    range.deleteContents();
+    const el = document.createElement(tag);
+    el.textContent = m[2];
+    const gap = document.createTextNode(ZWSP);
+    range.insertNode(gap);
+    range.insertNode(el);
+    sel.collapse(gap, 1);
+    return true;
+  }
+  return false;
+}
+
+/** Drops the caret's ZWSP once real text was typed next to it. */
+function dropTypedZwsp() {
+  const sel = window.getSelection();
+  const node = sel.anchorNode;
+  if (node?.nodeType !== Node.TEXT_NODE || node.length < 2) return;
+  const i = node.data.indexOf(ZWSP);
+  if (i < 0) return;
+  const offset = sel.anchorOffset;
+  node.deleteData(i, 1);
+  sel.collapse(node, offset > i ? offset - 1 : offset);
+}
+
+// ---------- Images ----------
+
+/** File picker for the "/" menu: images go in at the caret, stored like pasted ones. */
+function pickImages() {
+  const range = selectionRange()?.cloneRange();
+  if (!range) return;
+  const seq = loadSeq;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.multiple = true;
+  input.hidden = true;
+  document.body.appendChild(input);
+  input.addEventListener("change", () => {
+    const files = [...input.files].filter((f) => f.type.startsWith("image/"));
+    input.remove();
+    if (!files.length) return;
+    insertLater(range, seq, async () => {
+      const stored = await Promise.all(files.map(storeImageBlob));
+      return stored.map((img) => imageHtml(img.src, img.width, img.height)).join("");
+    });
+  });
+  input.click();
+}
+
+/** Toggles inline <code> on the selection (single block). */
+function toggleInlineCode() {
+  const code = closestInEditor("code");
+  if (code) {
+    code.replaceWith(...code.childNodes);
+    changed();
+    return;
+  }
+  const range = selectionRange();
+  const text = range?.toString() || "";
+  if (!text || text.includes("\n")) return;
+  exec("insertHTML", `<code>${escapeHtml(text)}</code>`);
+  changed();
 }
 
 const SHORTCUTS = {
@@ -647,6 +754,7 @@ const SHORTCUTS = {
 
 function handleKeydown(e) {
   if (editor.contentEditable !== "true" || codeBlockOf(e.target)) return;
+  if (menus.onKeydown(e)) return; // "/" menu navigation, Esc on the selection toolbar
   const mod = e.ctrlKey || e.metaKey;
 
   const lower = e.key.toLowerCase();
@@ -677,6 +785,25 @@ function handleKeydown(e) {
   }
 
   if (!mod && !e.altKey && !e.shiftKey && handleCodeAdjacency(e)) return;
+
+  // Enter on an empty line of a quote leaves it (like lists).
+  if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
+    const quote = closestInEditor("blockquote");
+    const line = quote && (closestInEditor("p,div,h1,h2,h3") || quote);
+    if (quote && !line.closest("li,td,th") && !line.textContent.trim() && !line.querySelector("img")) {
+      e.preventDefault();
+      const p = newParagraph();
+      if (line === quote) quote.replaceWith(p);
+      else {
+        quote.after(p);
+        line.remove();
+        if (!quote.textContent.trim() && !quote.querySelector("img")) quote.remove();
+      }
+      placeCaret(p);
+      changed();
+      return;
+    }
+  }
 
   // ```lang + Enter in an empty paragraph creates a code block.
   if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey) {
@@ -817,6 +944,7 @@ export function getSelectionState() {
     italic: document.queryCommandState("italic"),
     underline: document.queryCommandState("underline"),
     strike: document.queryCommandState("strikeThrough"),
+    code: !!closestInEditor("code"),
   };
 }
 
@@ -856,6 +984,20 @@ export function runCommand(cmd) {
     case "code":
       insertCodeBlock();
       return;
+    case "mermaid":
+      insertCodeBlock("mermaid");
+      return;
+    case "image":
+      changed(); // the "/" menu already removed its text: save that even if the picker is cancelled
+      pickImages();
+      return;
+    case "inline-code":
+      toggleInlineCode();
+      return;
+    case "clear":
+      exec("removeFormat");
+      editor.querySelectorAll("code").forEach((c) => window.getSelection().containsNode(c, true) && c.replaceWith(...c.childNodes));
+      break;
     case "bold":
     case "italic":
     case "underline":
@@ -879,6 +1021,7 @@ export function runCommand(cmd) {
 export function loadEditor(html, { readOnly = false, focus = false, key = null } = {}) {
   loadSeq++;
   lastTyped = "";
+  menus.close();
   editor.contentEditable = readOnly ? "false" : "true";
   setEditorHtml(html || "<h1><br></h1>");
   openHistory(readOnly ? null : key, editorHtml());
@@ -909,15 +1052,30 @@ export function initEditor({ onInput, onSelection }) {
     remove: removeCodeBlock,
     readOnly: () => editor.contentEditable !== "true",
   });
+  menus = initNoteMenus({
+    editor,
+    scroller,
+    runCommand,
+    getSelectionState,
+    selectionRange,
+    editable: () => editor.contentEditable === "true",
+  });
 
   editor.addEventListener("input", (e) => {
     normalizeTopLevel();
     const type = e.inputType || "";
     if (type === "insertText" || type === "insertCompositionText") {
+      if (!codeBlockOf(e.target)) dropTypedZwsp();
       // A new word starts a new undo step (the space stays with the previous word).
       const wordStart = /\S/.test(e.data || "") && /\s$/.test(lastTyped);
       lastTyped = e.data || "";
       changed("type", wordStart);
+      // **bold** etc.: the raw text stays one undo step behind the formatted one.
+      if (!codeBlockOf(e.target) && tryInlineMarkdown(e.data)) {
+        sealHistory();
+        changed();
+      }
+      menus.onInput(e);
       return;
     }
     lastTyped = "";

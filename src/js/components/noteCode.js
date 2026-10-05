@@ -444,6 +444,7 @@ function editKeys(w, e) {
   const collapsed = a === b;
   if (e.key === "Escape") {
     e.preventDefault();
+    e.stopPropagation(); // Esc no modo bandeja voltaria para a lista de notas
     ctx.exit(w, "after");
   } else if (collapsed && ((e.key === "ArrowUp" && !v.slice(0, a).includes("\n")) || (e.key === "ArrowLeft" && a === 0))) {
     e.preventDefault();

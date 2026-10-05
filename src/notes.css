@@ -1966,3 +1966,174 @@ body.desktop-mode .nt-trash-banner {
   background: var(--nt-menu-bg);
   box-shadow: 0 4px 14px rgba(0, 0, 0, calc(0.35 * var(--shade-k)));
 }
+
+/* =========================================================================
+   Menus do editor (js/components/noteMenus.js): barra da seleção e menu "/".
+   ========================================================================= */
+
+.nt-editor code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(var(--fg-rgb), 0.09);
+  font-family: var(--nt-mono);
+  font-size: 0.88em;
+}
+
+.nt-bubble,
+.nt-slash {
+  position: absolute;
+  z-index: 6;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 9px;
+  background: var(--nt-menu-bg);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, calc(0.45 * var(--shade-k)));
+  font-family: var(--nt-font);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.nt-bubble[hidden],
+.nt-slash[hidden] {
+  display: none;
+}
+
+.nt-bubble {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+  max-width: calc(100% - 8px);
+  padding: 3px;
+}
+
+.nt-bubble.nt-pop {
+  animation: ntPop 0.12s ease;
+}
+
+.nt-bubble button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(var(--fg-rgb), 0.72);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.nt-bubble button:hover {
+  background: rgba(var(--fg-rgb), 0.09);
+  color: var(--nt-text);
+}
+
+.nt-bubble button.active {
+  background: var(--nt-yellow-soft);
+  color: var(--nt-yellow);
+}
+
+.nt-bubble-glyph {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.nt-bubble-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--nt-sep-strong);
+}
+
+.nt-slash {
+  width: 270px;
+  max-width: calc(100% - 8px);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  animation: ntPop 0.12s ease;
+  scrollbar-width: thin;
+}
+
+.nt-slash-group {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.nt-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nt-text);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.nt-slash-item.active {
+  background: rgba(var(--fg-rgb), 0.09);
+}
+
+.nt-slash-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--nt-sep-strong);
+  border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.04);
+  font-size: 13px;
+  color: rgba(var(--fg-rgb), 0.75);
+}
+
+.nt-slash-glyph {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nt-slash-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.nt-slash-label {
+  font-size: 13px;
+}
+
+.nt-slash-desc {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.45);
+}
+
+.nt-slash-item kbd {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(var(--fg-rgb), 0.07);
+  font-family: var(--nt-mono);
+  font-size: 11px;
+  color: rgba(var(--fg-rgb), 0.5);
+}
+
+.nt-slash-empty {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: rgba(var(--fg-rgb), 0.5);
+}
