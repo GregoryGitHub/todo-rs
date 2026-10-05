@@ -1498,62 +1498,6 @@ body.db-resizing-y * {
   cursor: pointer;
 }
 
-/* Busca do filtro local levada ao servidor (valores fora das linhas carregadas). */
-.dg-pop-server {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  margin: 0 8px 7px;
-}
-
-.dg-pop-server[hidden],
-.dg-pop-empty[hidden],
-.dg-pop-list[hidden] {
-  display: none;
-}
-
-.dg-pop-server-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-right: 2px;
-  color: var(--nt-muted);
-  font-size: 11px;
-}
-
-.dg-pop-server-btn {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 3px 8px;
-  border: 1px solid var(--nt-sep-strong);
-  border-radius: 5px;
-  background: rgba(var(--fg-rgb), 0.04);
-  color: var(--nt-text);
-  font-family: var(--nt-mono);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.dg-pop-server-btn:hover {
-  background: rgba(var(--fg-rgb), 0.09);
-}
-
-.dg-pop-server-btn.primary {
-  border-color: var(--nt-yellow);
-  background: var(--nt-yellow-soft);
-}
-
-.dg-pop-empty {
-  padding: 22px 14px;
-  border-bottom: 1px solid var(--nt-sep);
-  color: var(--nt-muted);
-  font-size: 11.5px;
-  text-align: center;
-}
-
 /* Editor de valor */
 .dg-ve-overlay {
   position: absolute;
