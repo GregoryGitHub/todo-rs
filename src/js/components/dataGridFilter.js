@@ -5,6 +5,8 @@ import { NULL_KEY } from "../utils/gridModel.js";
 // Popup "Filtro local" de uma coluna do DataGrid (como o "Local Filter" do DataGrip):
 // valores distintos com contagem, busca e caixas de seleção. Aplica a cada clique.
 // Como no DataGrip: nada marcado (o padrão) ou tudo marcado = sem filtro; marcar valores filtra por eles.
+// Só enxerga as linhas carregadas: com `server`, o texto buscado também pode virar um filtro no
+// servidor (WHERE / filtro do MongoDB), para achar valores fora da página atual.
 
 const ITEM_H = 22;
 const LIST_H = 264;
@@ -12,8 +14,9 @@ const LIST_H = 264;
 /**
  * items: [{ key, value, count }] (GridModel.distinct); selected: Set de chaves ou null (sem filtro: nada marcado).
  * onChange(Set | null) aplica o filtro e devolve o total de linhas visíveis.
+ * server: { run(text, mode: "eq" | "contains") } busca o texto no servidor (fecha o popup).
  */
-export function openFilterPopup({ host, x, y, title, items, selected, onChange }) {
+export function openFilterPopup({ host, x, y, title, items, selected, onChange, server = null }) {
   const allKeys = items.map((i) => i.key);
   let checked = new Set(selected ?? []);
   let shown = items;
@@ -28,14 +31,26 @@ export function openFilterPopup({ host, x, y, title, items, selected, onChange }
   list.append(sizer);
   const footer = el("span.dg-pop-count");
   const clearBtn = el("button.dg-pop-link", { type: "button", onclick: () => setChecked(new Set()) }, "Limpar filtro");
+  const empty = el("div.dg-pop-empty", { hidden: true });
+  const eqBtn = el("button.dg-pop-server-btn", { type: "button", onclick: () => runServer("eq") });
+  const likeBtn = el("button.dg-pop-server-btn", { type: "button", onclick: () => runServer("contains") });
+  const serverBox = el(
+    "div.dg-pop-server",
+    { hidden: true },
+    el("span.dg-pop-server-label", {}, icon("fa-solid fa-server"), "Buscar no servidor"),
+    eqBtn,
+    likeBtn,
+  );
 
   const pop = el(
     "div.dg-pop.dg-filter",
     { role: "dialog" },
     el("div.dg-pop-title", {}, title),
     el("label.dg-pop-searchbox", {}, icon("fa-solid fa-magnifying-glass"), search),
+    serverBox,
     el("div.dg-pop-head", {}, el("label", {}, allBox, el("span", {}, "Valor")), el("span", {}, "Qtde")),
     list,
+    empty,
     el("div.dg-pop-foot", {}, footer, clearBtn),
   );
 
@@ -61,6 +76,32 @@ export function openFilterPopup({ host, x, y, title, items, selected, onChange }
     allBox.indeterminate = shownChecked > 0 && shownChecked < shown.length;
     footer.textContent = `Linhas visíveis: ${matches.toLocaleString("pt-BR")}`;
     clearBtn.hidden = checked.size === 0 || checked.size === allKeys.length;
+    paintServer();
+  }
+
+  function paintServer() {
+    const q = search.value.trim();
+    const none = !!q && !shown.length;
+    list.hidden = none;
+    empty.hidden = !none;
+    empty.textContent = server
+      ? "Nenhum valor nas linhas carregadas. Enter busca no servidor."
+      : "Nenhum valor nas linhas carregadas.";
+    serverBox.hidden = !server || !q;
+    if (serverBox.hidden) return;
+    const short = q.length > 28 ? q.slice(0, 28) + "…" : q;
+    eqBtn.textContent = `= "${short}"`;
+    eqBtn.title = `Filtrar no servidor: igual a "${q}"${none ? " (Enter)" : ""}`;
+    likeBtn.textContent = `contém "${short}"`;
+    likeBtn.title = `Filtrar no servidor: contém "${q}"`;
+    eqBtn.classList.toggle("primary", none);
+  }
+
+  function runServer(mode) {
+    const q = search.value.trim();
+    if (!server || !q) return;
+    close();
+    server.run(q, mode);
   }
 
   function setChecked(next) {
@@ -100,8 +141,10 @@ export function openFilterPopup({ host, x, y, title, items, selected, onChange }
     paint();
   });
   search.addEventListener("keydown", (e) => {
-    // Enter com busca: mantém só os valores encontrados.
-    if (e.key === "Enter" && search.value.trim()) setChecked(new Set(shown.map((i) => i.key)));
+    // Enter com busca: mantém só os valores encontrados; sem nenhum, busca no servidor.
+    if (e.key !== "Enter" || !search.value.trim()) return;
+    if (shown.length) setChecked(new Set(shown.map((i) => i.key)));
+    else runServer("eq");
   });
 
   host.append(pop);

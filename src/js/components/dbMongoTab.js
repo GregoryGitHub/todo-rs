@@ -1,7 +1,7 @@
 import { el, icon } from "../utils/dom.js";
 import { uid, target } from "../utils/dbModel.js";
 import { parseShellValue } from "../utils/mongoShell.js";
-import { createDocState, docsToRows, cellType, cellOf, ejsonFromInput, buildMongoChanges, toShell, cellEditText } from "../utils/mongoValue.js";
+import { createDocState, docsToRows, cellType, columnType, cellOf, ejsonFromInput, buildMongoChanges, toShell, cellEditText } from "../utils/mongoValue.js";
 import { createDataGrid } from "./dataGrid.js";
 import { openValueEditor } from "./dataGridEditor.js";
 import { codeEditor } from "./codeEditor.js";
@@ -40,6 +40,7 @@ export function createMongoTab(ctx, tab) {
     onInfo: (m) => ctx.toast(m),
     onCopied: (n) => n > 1 && ctx.toast(`${n.toLocaleString("pt-BR")} células copiadas`),
     onSubmit: submit,
+    serverFilter: searchServer,
     copyAsItems: (m) => copyAsItems(ctx, ctx.dialect(conn()), m, null, { mongo: true }),
     // Texto digitado → mesmo tipo BSON do valor original (ou o dominante da coluna).
     parseValue: (text, col, r) => {
@@ -335,6 +336,35 @@ export function createMongoTab(ctx, tab) {
     }
     p[col.name] = 0;
     projInput.value = toShell(p);
+    apply();
+  }
+
+  /**
+   * Busca do popup de filtro levada ao servidor: { campo: valor } com o tipo BSON da coluna
+   * (ObjectId, número, data...) ou { campo: { $regex, $options: "i" } } para "contém".
+   */
+  function searchServer(col, text, mode) {
+    const looksOid = /^[0-9a-fA-F]{24}$/.test(text);
+    let value;
+    if (mode === "contains") {
+      value = { $regex: text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+    } else {
+      try {
+        value = ejsonFromInput(text, columnType(col));
+      } catch {
+        value = text; // tipo da coluna não aceita o texto: busca como string
+      }
+      // Tipos mistos (ou só texto): um _id/ObjectId digitado vira ObjectId.
+      if (typeof value === "string" && looksOid && (col.name === "_id" || col.types?.has("objectId"))) value = { $oid: text.toLowerCase() };
+    }
+    let f = {};
+    try {
+      f = parseDoc(filterInput.value, "Filtro") || {};
+    } catch {
+      f = {};
+    }
+    f[col.name] = value;
+    filterInput.value = toShell(f);
     apply();
   }
 

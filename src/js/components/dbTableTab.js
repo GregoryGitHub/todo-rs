@@ -39,6 +39,7 @@ export function createTableTab(ctx, tab) {
     onCopied: (n) => n > 1 && ctx.toast(`${n.toLocaleString("pt-BR")} células copiadas`),
     onSubmit: submit,
     onOpenFk: openFk,
+    serverFilter: searchServer,
     copyAsItems: (m) => copyAsItems(ctx, dialect(), m, info),
     headerMenuItems: (col) => [
       "sep",
@@ -291,6 +292,29 @@ export function createTableTab(ctx, tab) {
     const col = dialect().quote(cell.column.name);
     const cond = cell.value === null ? `${col} IS NULL` : `${col} = ${dialect().literal(cell.value, cell.column.kind)}`;
     whereInput.value = whereInput.value.trim() ? `(${whereInput.value.trim()}) AND ${cond}` : cond;
+    applyFilters();
+  }
+
+  /** Condição criada pela última busca do filtro local (trocada, não acumulada, na próxima). */
+  let lastSearch = "";
+
+  /** Busca do popup de filtro levada ao servidor: col = valor | col LIKE '%valor%'. */
+  function searchServer(col, text, mode) {
+    const q = dialect().quote(col.name);
+    let cond;
+    if (mode === "contains") {
+      const pattern = `%${text.replace(/[[%_]/g, "[$&]")}%`;
+      const target = ["str", "xml"].includes(col.kind) ? q : `CAST(${q} AS NVARCHAR(4000))`;
+      cond = `${target} LIKE ${dialect().string(pattern)}`;
+    } else {
+      cond = `${q} = ${dialect().literal(text, col.kind)}`;
+    }
+    let where = whereInput.value.trim();
+    if (lastSearch && where === lastSearch) where = "";
+    else if (lastSearch && where.endsWith(` AND ${lastSearch}`)) where = where.slice(0, -(` AND ${lastSearch}`.length));
+    lastSearch = cond;
+    const wrap = /\bOR\b/i.test(where) && !/^\(.*\)$/s.test(where);
+    whereInput.value = where ? `${wrap ? `(${where})` : where} AND ${cond}` : cond;
     applyFilters();
   }
 

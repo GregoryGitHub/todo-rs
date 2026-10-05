@@ -53,6 +53,7 @@ const SKIP = Symbol("skip");
  *  - editable: permite editar (o host decide pela PK/conexão)
  *  - showMenu(x, y, items): menu de contexto do host (formato de http.js/showMenu)
  *  - cellMenuItems(ctx) / headerMenuItems(col): itens extras do host
+ *  - serverFilter(col, text, "eq" | "contains"): busca do popup de filtro levada ao servidor
  *  - onChange(): alterações pendentes mudaram
  *  - onStatus({ rows, total, selection, pending }): rodapé
  *  - onError(message)
@@ -739,15 +740,26 @@ export function createDataGrid(opts = {}) {
       title: `Filtro local de "${col.name}"`,
       items: model.distinct(c),
       selected: model.filters.get(c) || null,
-      onChange: (set) => {
-        model.setFilter(c, set);
-        resetSelection();
-        layout();
-        schedule(true);
-        emitStatus();
-        return model.view.length;
-      },
+      onChange: applyLocal,
+      // O filtro local só vê as linhas carregadas: a aba pode buscar o texto no servidor.
+      server: opts.serverFilter
+        ? {
+            run: (text, mode) => {
+              applyLocal(null);
+              opts.serverFilter(col, text, mode);
+            },
+          }
+        : null,
     });
+
+    function applyLocal(set) {
+      model.setFilter(c, set);
+      resetSelection();
+      layout();
+      schedule(true);
+      emitStatus();
+      return model.view.length;
+    }
   }
 
   function sortBy(c, dir, add = false) {
