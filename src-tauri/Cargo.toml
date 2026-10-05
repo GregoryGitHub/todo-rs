@@ -28,6 +28,8 @@ sha2 = "0.10"
 mongodb = "3.9"
 bson = "2.15"
 rand = "0.9"
+# Notas e pastas (notes.db): SQLite embutido no binário, com FTS5 para a busca.
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [profile.release]
 panic = "abort"

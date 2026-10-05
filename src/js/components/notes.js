@@ -1,26 +1,17 @@
 import { state } from "../state.js";
+import { hasTauri, openFileDialogApi, saveFileDialogApi, readTextFileApi, writeFileApi, exportNoteImagesApi } from "../api.js";
 import {
-  saveNotesApi,
-  saveFoldersApi,
-  hasTauri,
-  openFileDialogApi,
-  saveFileDialogApi,
-  readTextFileApi,
-  writeFileApi,
-  exportNoteImagesApi,
-  gcNoteImagesApi,
-} from "../api.js";
+  loadNoteStore,
+  ensureContent,
+  saveNoteContent,
+  saveNoteMeta,
+  deleteNotes,
+  saveFolders as saveFoldersStore,
+  searchNotes,
+  collectImageGarbage,
+} from "../noteStore.js";
 import { formatNoteListDate, formatNoteFullDate, noteGroupLabel } from "../utils/date.js";
-import {
-  noteTitle,
-  notePreview,
-  noteIsEmpty,
-  noteMatches,
-  sanitizeHtml,
-  escapeHtml,
-  localImageName,
-  noteImageNames,
-} from "../utils/noteContent.js";
+import { noteTitle, notePreview, noteIsEmpty, noteMatches, sanitizeHtml, escapeHtml, localImageName } from "../utils/noteContent.js";
 import { htmlToMarkdown, markdownToHtml } from "../utils/markdown.js";
 import { resolveMarkdownImages } from "../utils/noteImages.js";
 import { initEditor, loadEditor, runCommand, getSelectionState, focusEditorEnd } from "./noteEditor.js";
@@ -52,6 +43,10 @@ const toastEl = document.getElementById("nt-toast");
 let saveTimer = null;
 let listRenderQueued = false;
 let toastTimer = null;
+let editorLoadSeq = 0; // ignora conteúdo que chegou do banco depois de trocar de nota
+let searchHits = null; // ids do banco para ui.query (null = busca em andamento)
+let searchSeq = 0;
+let searchTimer = null;
 
 const MD_FILTERS = [{ name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "txt"] }];
 
@@ -88,6 +83,22 @@ function pluralNotes(n) {
   return `${n} ${n === 1 ? "nota" : "notas"}`;
 }
 
+// Notes come from notes.db without their HTML (content === undefined until opened):
+// the list uses the stored title/preview, or derives them live from loaded content.
+const titleOf = (n) => (n.content !== undefined ? noteTitle(n) : n.title || "Nova Nota");
+const previewOf = (n) => (n.content !== undefined ? notePreview(n) : n.preview || "Nenhum texto adicional");
+const isEmptyNote = (n) => n.content !== undefined && noteIsEmpty(n);
+
+function storeError(message) {
+  toast(`Falha ao salvar as notas: ${message}`);
+}
+
+/** Search runs in the database; notes edited and not saved yet are matched locally. */
+function matchesQuery(n, q) {
+  if (n.dirty && n.content !== undefined) return noteMatches(n, q);
+  return !!searchHits?.has(n.id);
+}
+
 function visibleNotes() {
   const q = ui.query.trim();
   const inTrash = ui.scope === "trash";
@@ -97,7 +108,7 @@ function visibleNotes() {
     if (n.deleted_at) return false;
     return q || fid === null || n.folder_id === fid;
   });
-  if (q) list = list.filter((n) => noteMatches(n, q));
+  if (q) list = list.filter((n) => matchesQuery(n, q));
   return list.sort((a, b) => {
     if (inTrash) return b.deleted_at - a.deleted_at;
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -105,27 +116,48 @@ function visibleNotes() {
   });
 }
 
+function runSearch() {
+  clearTimeout(searchTimer);
+  const q = ui.query.trim();
+  if (!q) {
+    searchHits = null;
+    return renderNotes();
+  }
+  const seq = ++searchSeq;
+  searchTimer = setTimeout(() => {
+    flushNotesSave(); // the database must see what was just typed
+    searchNotes(q)
+      .then((ids) => {
+        if (seq !== searchSeq) return;
+        searchHits = ids;
+        renderNotes();
+      })
+      .catch((e) => toast(`Falha na busca: ${e}`));
+  }, 120);
+}
+
 function saveNotesSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushNotesSave, 400);
 }
 
+/** Saves the edited notes (only the changed ones, one by one). Empty notes are not stored. */
 function flushNotesSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const persisted = state.notes.filter((n) => !noteIsEmpty(n) || n.deleted_at);
-  saveNotesApi(persisted.map((n) => ({ ...n, title: noteTitle(n) })));
+  saveNoteContent(state.notes.filter((n) => n.dirty && (n.deleted_at || !isEmptyNote(n))), storeError);
 }
 
 function saveFolders() {
-  saveFoldersApi(state.folders);
+  saveFoldersStore(state.folders, storeError);
 }
 
 /** Like macOS Notes: a note left without any content is discarded. */
 function discardIfEmpty(id) {
   const note = findNote(id);
-  if (note && !note.deleted_at && noteIsEmpty(note)) {
+  if (note && !note.deleted_at && isEmptyNote(note)) {
     state.notes = state.notes.filter((n) => n.id !== id);
+    deleteNotes([note], storeError);
   }
 }
 
@@ -171,6 +203,8 @@ function addNote(content) {
     pinned: false,
     folder_id: scopeFolderId() ?? 0,
     deleted_at: null,
+    dirty: true, // saved once it has content (flushNotesSave skips empty notes)
+    saved: false,
   });
   return id;
 }
@@ -229,9 +263,14 @@ async function exportMarkdown(id) {
   const note = findNote(id);
   if (!note) return;
   if (!hasTauri) return toast("Disponível apenas no aplicativo desktop.");
+  try {
+    await ensureContent(note);
+  } catch (e) {
+    return toast(`Falha ao ler a nota: ${e}`);
+  }
   const path = await saveFileDialogApi({
     title: "Exportar como Markdown",
-    defaultPath: `${safeFileName(noteTitle(note))}.md`,
+    defaultPath: `${safeFileName(titleOf(note))}.md`,
     filters: MD_FILTERS.slice(0, 1),
   });
   if (!path) return;
@@ -258,12 +297,21 @@ async function exportMarkdown(id) {
   }
 }
 
-/** Removes image files no note references anymore (trash included). Call after loading. */
-export function collectNoteImageGarbage() {
-  if (!hasTauri || !state.notes.length) return;
-  const keep = new Set();
-  for (const n of state.notes) for (const name of noteImageNames(n.content)) keep.add(name);
-  gcNoteImagesApi([...keep]);
+/** Loads folders and note metadata from notes.db (importing notes.json on the first run). */
+export async function loadNotes() {
+  try {
+    const { notes, folders, error } = await loadNoteStore();
+    state.notes = notes;
+    state.folders = folders;
+    if (error) toast(`Notas antigas não importadas: ${error}`);
+    // Removes image files no note references anymore (trash included); the list comes from the database.
+    else if (hasTauri && notes.length) collectImageGarbage();
+  } catch (e) {
+    console.error("notes load failed", e);
+    toast(`Falha ao abrir as notas: ${e}`);
+  }
+  renderNotes();
+  loadSelectedIntoEditor();
 }
 
 function showMoreMenu(btn) {
@@ -282,13 +330,14 @@ function deleteNote(id) {
   const idx = list.findIndex((n) => n.id === id);
   const next = list[idx + 1] || list[idx - 1] || null;
 
-  if (note.deleted_at || noteIsEmpty(note)) {
+  if (note.deleted_at || isEmptyNote(note)) {
     state.notes = state.notes.filter((n) => n.id !== id);
+    deleteNotes([note], storeError);
   } else {
     note.deleted_at = Date.now();
     note.pinned = false;
+    saveNoteMeta([note], storeError);
   }
-  flushNotesSave();
 
   if (ui.selectedId === id) {
     ui.selectedId = null;
@@ -309,7 +358,7 @@ function restoreNote(id) {
   note.deleted_at = null;
   if (!allFolders().some((f) => f.id === note.folder_id)) note.folder_id = 0;
   note.updated_at = Date.now();
-  flushNotesSave();
+  saveNoteMeta([note], storeError);
   if (ui.selectedId === id) {
     // Follows the note back to its folder, like macOS Notes.
     ui.scope = `f:${note.folder_id}`;
@@ -324,7 +373,7 @@ function togglePin(id) {
   const note = findNote(id);
   if (!note || note.deleted_at) return;
   note.pinned = !note.pinned;
-  flushNotesSave();
+  saveNoteMeta([note], storeError);
   renderNotes();
 }
 
@@ -333,7 +382,7 @@ function moveNote(id, folderId) {
   if (!note) return;
   note.folder_id = folderId;
   if (note.deleted_at) note.deleted_at = null;
-  flushNotesSave();
+  saveNoteMeta([note], storeError);
   renderNotes();
 }
 
@@ -367,15 +416,17 @@ function renameFolder(id, name) {
 
 function deleteFolder(id) {
   const now = Date.now();
+  const moved = [];
   for (const n of state.notes) {
     if (n.folder_id === id && !n.deleted_at) {
       n.deleted_at = now;
       n.pinned = false;
+      moved.push(n);
     }
   }
   state.folders = state.folders.filter((f) => f.id !== id);
   saveFolders();
-  flushNotesSave();
+  saveNoteMeta(moved, storeError);
   if (ui.scope === `f:${id}`) setScope("all");
   else renderNotes();
 }
@@ -500,7 +551,7 @@ function renderListItem(note, showFolder) {
     pin.className = "fa-solid fa-thumbtack nt-item-pin";
     title.appendChild(pin);
   }
-  title.append(noteTitle(note));
+  title.append(titleOf(note));
 
   const meta = document.createElement("div");
   meta.className = "nt-item-meta";
@@ -509,7 +560,7 @@ function renderListItem(note, showFolder) {
   date.textContent = formatNoteListDate(note.updated_at);
   const preview = document.createElement("span");
   preview.className = "nt-item-preview";
-  preview.textContent = notePreview(note);
+  preview.textContent = previewOf(note);
   meta.append(date, preview);
 
   item.append(title, meta);
@@ -618,15 +669,23 @@ function loadSelectedIntoEditor({ focus = false } = {}) {
   editorScrollEl.hidden = !note;
   editorEmptyEl.hidden = !!note;
   trashBannerEl.hidden = !note?.deleted_at;
+  const seq = ++editorLoadSeq;
   if (!note) return;
   editorDateEl.textContent = formatNoteFullDate(note.updated_at);
-  loadEditor(note.content, { readOnly: !!note.deleted_at, focus, key: note.id });
+  const open = () => loadEditor(note.content, { readOnly: !!note.deleted_at, focus, key: note.id });
+  if (note.content !== undefined) return open();
+  // HTML comes from notes.db the first time the note is opened.
+  loadEditor("", { readOnly: true });
+  ensureContent(note)
+    .then(() => seq === editorLoadSeq && ui.selectedId === note.id && open())
+    .catch((e) => toast(`Falha ao abrir a nota: ${e}`));
 }
 
 function handleEditorInput(html) {
   const note = selectedNote();
-  if (!note || note.deleted_at) return;
+  if (!note || note.deleted_at || note.content === undefined) return;
   note.content = html;
+  note.dirty = true;
   note.updated_at = Date.now();
   editorDateEl.textContent = formatNoteFullDate(note.updated_at);
   saveNotesSoon();
@@ -890,7 +949,7 @@ export function initNotes() {
     input.addEventListener("input", () => {
       ui.query = input.value;
       searchInputs.forEach((i) => i !== input && (i.value = input.value));
-      renderNotes();
+      runSearch();
     });
   }
 

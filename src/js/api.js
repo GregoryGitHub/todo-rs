@@ -17,39 +17,29 @@ export async function saveTodosApi(todos) {
   }
 }
 
-export async function loadNotesApi() {
-  try {
-    return (await invoke("load_notes")) || [];
-  } catch (e) {
-    console.error("load_notes failed", e);
-    return [];
-  }
-}
+// ---------- Notas e pastas (notes.db, SQLite; ver src-tauri/src/notes_db.rs) ----------
+// Os erros sobem para quem chama (js/noteStore.js), que decide como avisar.
 
-export async function saveNotesApi(notes) {
-  try {
-    await invoke("save_notes", { notes });
-  } catch (e) {
-    console.error("save_notes failed", e);
-  }
-}
-
-export async function loadFoldersApi() {
-  try {
-    return (await invoke("load_folders")) || [];
-  } catch (e) {
-    console.error("load_folders failed", e);
-    return [];
-  }
-}
-
-export async function saveFoldersApi(folders) {
-  try {
-    await invoke("save_folders", { folders });
-  } catch (e) {
-    console.error("save_folders failed", e);
-  }
-}
+export const notesApi = {
+  /** Metadados de todas as notas (sem o HTML); remove da lixeira o que passou de 30 dias. */
+  list: () => invoke("notes_list"),
+  /** HTML de uma nota (null se não existe). */
+  get: (id) => invoke("notes_get", { id }),
+  /** Grava uma nota completa: { ...meta, content, plain, images }. */
+  save: (note) => invoke("notes_save", { note }),
+  /** Atualiza fixada/pasta/lixeira/data de várias notas sem reenviar o HTML. */
+  setMeta: (notes) => invoke("notes_set_meta", { notes }),
+  delete: (ids) => invoke("notes_delete", { ids }),
+  /** Ids das notas que contêm o texto (trigram: sem maiúsculas/acentos). */
+  search: (query) => invoke("notes_search", { query }),
+  folders: () => invoke("notes_folders"),
+  saveFolders: (folders) => invoke("notes_save_folders", { folders }),
+  /** notes.json/folders.json antigos ainda não importados, ou null. */
+  legacy: () => invoke("notes_legacy"),
+  import: (notes, folders) => invoke("notes_import", { notes, folders }),
+  /** Apaga imagens que nenhuma nota usa (a lista vem do banco). */
+  gcImages: () => invoke("notes_gc_images"),
+};
 
 export async function loadSettingsApi() {
   try {
@@ -173,10 +163,6 @@ export function importNoteImageApi(path) {
 
 export function exportNoteImagesApi(names, dir) {
   return invoke("export_note_images", { names, dir });
-}
-
-export function gcNoteImagesApi(keep) {
-  return invoke("gc_note_images", { keep }).catch((e) => console.error("gc_note_images failed", e));
 }
 
 // ---------- Banco de dados (aba estilo DataGrip) ----------

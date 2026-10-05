@@ -1,9 +1,8 @@
 import { state } from "./js/state.js";
 import { getTodayStr } from "./js/utils/date.js";
-import { loadTodosApi, loadNotesApi, loadFoldersApi, loadSettingsApi, saveNotesApi, loadHttpDataApi, loadDbDataApi } from "./js/api.js";
-import { normalizeNote, purgeExpiredTrash } from "./js/utils/noteContent.js";
+import { loadTodosApi, loadSettingsApi, loadHttpDataApi, loadDbDataApi } from "./js/api.js";
 import { initTasks, renderTasks } from "./js/components/tasks.js";
-import { initNotes, renderNotes, collectNoteImageGarbage } from "./js/components/notes.js";
+import { initNotes, loadNotes } from "./js/components/notes.js";
 import { initHttp, setHttpData } from "./js/components/http.js";
 import { initJsonFormatter } from "./js/components/jsonFormatter.js";
 import { initDb, setDbData } from "./js/components/db.js";
@@ -24,10 +23,6 @@ async function load() {
       is_my_day: t.is_my_day ?? (t.date === today),
     }));
 
-    const rawNotes = (await loadNotesApi()) || [];
-    state.notes = purgeExpiredTrash(rawNotes.map(normalizeNote));
-    if (state.notes.length !== rawNotes.length) saveNotesApi(state.notes);
-    state.folders = (await loadFoldersApi()) || [];
     state.settings = { ...state.settings, ...(await loadSettingsApi()) };
   } catch (e) {
     console.error("load failed", e);
@@ -36,8 +31,8 @@ async function load() {
   syncThemeFromSettings();
   updateSettingsUI();
   renderTasks();
-  renderNotes();
-  collectNoteImageGarbage();
+  // notes.db (SQLite): only metadata here; each note's HTML loads when it is opened.
+  await loadNotes();
 
   try {
     setHttpData(await loadHttpDataApi());

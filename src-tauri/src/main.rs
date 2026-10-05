@@ -3,6 +3,7 @@
 mod db;
 mod http;
 mod note_images;
+mod notes_db;
 mod persist;
 
 use std::fs;
@@ -30,35 +31,6 @@ struct Todo {
     completed_date: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     note: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Note {
-    id: u64,
-    #[serde(default)]
-    title: String,
-    /// HTML do editor rico (versões antigas guardavam texto puro).
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    created_at: String,
-    /// Timestamp em milissegundos da última edição.
-    #[serde(default)]
-    updated_at: u64,
-    #[serde(default)]
-    pinned: bool,
-    /// 0 = pasta padrão "Notas".
-    #[serde(default)]
-    folder_id: u64,
-    /// Preenchido quando a nota está em "Apagadas Recentemente".
-    #[serde(default)]
-    deleted_at: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Folder {
-    id: u64,
-    name: String,
 }
 
 /// true enquanto a janela está no modo desktop (notas em janela grande).
@@ -96,30 +68,6 @@ fn data_file(app: &tauri::AppHandle) -> PathBuf {
     dir
 }
 
-fn notes_file(app: &tauri::AppHandle) -> PathBuf {
-    let mut dir = app
-        .path()
-        .app_data_dir()
-        .expect("failed to resolve app data dir");
-    if !dir.exists() {
-        let _ = fs::create_dir_all(&dir);
-    }
-    dir.push("notes.json");
-    dir
-}
-
-fn folders_file(app: &tauri::AppHandle) -> PathBuf {
-    let mut dir = app
-        .path()
-        .app_data_dir()
-        .expect("failed to resolve app data dir");
-    if !dir.exists() {
-        let _ = fs::create_dir_all(&dir);
-    }
-    dir.push("folders.json");
-    dir
-}
-
 fn settings_file(app: &tauri::AppHandle) -> PathBuf {
     let mut dir = app
         .path()
@@ -145,48 +93,6 @@ fn load_todos(app: tauri::AppHandle) -> Vec<Todo> {
 fn save_todos(app: tauri::AppHandle, todos: Vec<Todo>) -> Result<(), String> {
     let path = data_file(&app);
     let json = serde_json::to_string_pretty(&todos).map_err(|e| e.to_string())?;
-    persist::write(path, json);
-    Ok(())
-}
-
-#[tauri::command]
-fn load_notes(app: tauri::AppHandle) -> Vec<Note> {
-    let path = notes_file(&app);
-    let Ok(raw) = fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    match serde_json::from_str::<Vec<Note>>(&raw) {
-        Ok(notes) => notes,
-        Err(e) => {
-            // O próximo save sobrescreveria o arquivo ilegível; guarda uma cópia antes.
-            eprintln!("notes.json inválido ({e}); salvando cópia em notes.json.bak");
-            let _ = fs::copy(&path, path.with_extension("json.bak"));
-            Vec::new()
-        }
-    }
-}
-
-#[tauri::command]
-fn save_notes(app: tauri::AppHandle, notes: Vec<Note>) -> Result<(), String> {
-    let path = notes_file(&app);
-    let json = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
-    persist::write(path, json);
-    Ok(())
-}
-
-#[tauri::command]
-fn load_folders(app: tauri::AppHandle) -> Vec<Folder> {
-    let path = folders_file(&app);
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<Folder>>(&s).ok())
-        .unwrap_or_default()
-}
-
-#[tauri::command]
-fn save_folders(app: tauri::AppHandle, folders: Vec<Folder>) -> Result<(), String> {
-    let path = folders_file(&app);
-    let json = serde_json::to_string_pretty(&folders).map_err(|e| e.to_string())?;
     persist::write(path, json);
     Ok(())
 }
@@ -472,6 +378,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(DesktopMode::default())
+        .manage(notes_db::NotesDb::default())
         .manage(db::DbSessions::default())
         .manage(db::DbInflight::default())
         .manage(db::EntraTokens::default())
@@ -480,10 +387,17 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             load_todos,
             save_todos,
-            load_notes,
-            save_notes,
-            load_folders,
-            save_folders,
+            notes_db::notes_list,
+            notes_db::notes_get,
+            notes_db::notes_save,
+            notes_db::notes_set_meta,
+            notes_db::notes_delete,
+            notes_db::notes_search,
+            notes_db::notes_folders,
+            notes_db::notes_save_folders,
+            notes_db::notes_legacy,
+            notes_db::notes_import,
+            notes_db::notes_gc_images,
             load_settings,
             save_settings,
             hide_window,
@@ -501,7 +415,6 @@ fn main() {
             note_images::save_note_image,
             note_images::import_note_image,
             note_images::export_note_images,
-            note_images::gc_note_images,
             db::load_db_data,
             db::save_db_data,
             db::db_set_password,

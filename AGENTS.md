@@ -47,6 +47,7 @@ todo-rs/
 │   └── js/                    # Módulos JS organizados por responsabilidade
 │       ├── api.js             # Bridge IPC Tauri (`load_todos`, `save_todos`, etc.)
 │       ├── state.js           # Estado global reativo da aplicação
+│       ├── noteStore.js       # Notas no notes.db: migração do JSON, conteúdo sob demanda, fila de gravação, busca
 │       ├── navigation.js      # Troca de view principal (dispara o evento "mainviewchange")
 │       ├── utils/
 │       │   ├── date.js        # Utilitários de data e formatação de tempo
@@ -109,6 +110,7 @@ todo-rs/
         ├── main.rs            # Comandos Rust IPC e lógica de persistência JSON no disco
         ├── http.rs            # Cliente HTTP (reqwest), cancelamento, cookies, http.json e arquivos
         ├── note_images.rs     # Imagens das notas em note-images/ + protocolo noteimg://
+        ├── notes_db.rs        # Notas e pastas em SQLite (notes.db, rusqlite bundled): FTS5 trigram, migração do JSON
         ├── persist.rs         # Fila de gravação em thread própria (atômica, sem travar a UI)
         ├── (vendor/tiberius)  # tiberius 0.13 com patch "TodoRS patch" (contagem por comando); ver [patch.crates-io]
         └── db/                # Cliente de banco de dados (aba Banco)
@@ -132,10 +134,14 @@ O backend Rust (`src-tauri/src/main.rs`) expõe os seguintes comandos via Tauri 
 | :--- | :--- | :--- | :--- |
 | `load_todos` | - | `Vec<Todo>` | Carrega tarefas de `todos.json` |
 | `save_todos` | `{ todos: Vec<Todo> }` | `Result<(), String>` | Persiste a lista de tarefas no disco |
-| `load_notes` | - | `Vec<Note>` | Carrega notas de `notes.json` |
-| `save_notes` | `{ notes: Vec<Note> }` | `Result<(), String>` | Persiste as notas no disco |
-| `load_folders` | - | `Vec<Folder>` | Carrega pastas de notas de `folders.json` |
-| `save_folders` | `{ folders: Vec<Folder> }` | `Result<(), String>` | Persiste as pastas no disco |
+| `notes_list` | - | `Result<Vec<NoteMeta>>` | Metadados das notas, sem o HTML (antes remove da lixeira o que passou de 30 dias) |
+| `notes_get` | `{ id }` | `Result<Option<String>>` | HTML de uma nota (carregado ao abri-la) |
+| `notes_save` | `{ note: NoteSave }` | `Result` | UPSERT de uma nota (só a alterada) |
+| `notes_set_meta` | `{ notes: Vec<NoteMeta> }` | `Result` | Fixar/mover/lixeira/restaurar sem reenviar o HTML |
+| `notes_delete` | `{ ids }` | `Result` | Apaga de vez |
+| `notes_search` | `{ query }` | `Result<Vec<u64>>` | Ids que contêm o texto (FTS5 trigram, sem maiúsculas/acentos; < 3 caracteres = LIKE) |
+| `notes_folders` / `notes_save_folders` | `{ folders? }` | `Result` | Pastas (a ordem do array é a ordem salva) |
+| `notes_legacy` / `notes_import` | `{ notes, folders }` | `Result` | Importa `notes.json`/`folders.json` na 1ª execução (depois renomeados para `*.migrated`) |
 | `load_settings` | - | `AppSettings` | Carrega configurações de `settings.json` |
 | `save_settings` | `{ settings: AppSettings }` | `Result<(), String>` | Salva configurações e ajusta autostart do sistema |
 | `hide_window` | - | `()` | Oculta a janela principal na bandeja (System Tray) |
@@ -151,7 +157,7 @@ O backend Rust (`src-tauri/src/main.rs`) expõe os seguintes comandos via Tauri 
 | `save_note_image` | bytes crus no corpo + header `x-ext` | `Result<String>` | Salva imagem colada em `note-images/<hash>.<ext>` e retorna o nome |
 | `import_note_image` | `{ path }` | `Result<String>` | Copia uma imagem do disco (import de Markdown) |
 | `export_note_images` | `{ names, dir }` | `Result` | Copia imagens para a pasta `<nome>.assets` do export |
-| `gc_note_images` | `{ keep }` | `Result<u32>` | Apaga imagens órfãs com mais de 24 h (chamado após carregar as notas) |
+| `notes_gc_images` | - | `Result<u32>` | Apaga imagens órfãs com mais de 24 h (nomes usados vêm do notes.db; chamado após carregar) |
 
 Imagens das notas são servidas pelo protocolo `noteimg` (`http://noteimg.localhost/<nome>` no Windows, `noteimg://localhost/<nome>` no Linux/macOS); o HTML guarda só a URL e `normalizeNote` converte entre as duas formas.
 
@@ -178,7 +184,8 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 ### Estruturas de Dados (JSON / Rust Structs)
 
 - **Todo**: `{ id: u64, text: String, done: bool, date: String ("YYYY-MM-DD"), is_my_day: bool, completed_date?: String, note?: String }`
-- **Note**: `{ id: u64, title: String, content: String (HTML), created_at: String, updated_at: u64 (ms), pinned: bool, folder_id: u64 (0 = "Notas"), deleted_at?: u64 }`
+- **NoteMeta** (notes.db): `{ id: u64, title, preview, created_at: String, updated_at: u64 (ms), pinned: bool, folder_id: u64 (0 = "Notas"), deleted_at?: u64 }`
+- **NoteSave**: `NoteMeta` + `{ content: String (HTML), plain: String (texto da busca), images: [nome] }` — título/prévia/texto/imagens calculados no JS (`noteRecord`)
 - **Folder**: `{ id: u64, name: String }`
 - **AppSettings**: `{ autostart: bool, start_minimized: bool, theme: "system" | "light" | "dark" }`
 - **HttpRequest** (IPC): `{ id, method, url, headers: [{key,value}], body: {kind: none|text|multipart|file}, timeout_ms, follow_redirects, verify_ssl, use_cookies }`
@@ -203,14 +210,15 @@ Todos os comandos que tocam a rede são `async`. Os que rodam SQL recebem `targe
 3. **Notas Rápidas (cópia do app Notas do macOS)**:
    - O conteúdo é HTML gerado pelo editor (`h1/h2/h3/p/pre/blockquote/ul/ol/li/table/b/i/u/s`). A primeira linha é o título; `title` é derivado e salvo só por compatibilidade. Notas antigas em texto puro são migradas por `normalizeNote`.
    - Listas: `ul` (marcadores), `ul.dashed` (traços), `ol` (numerada), `ul.checklist` com `li.checked`. Tabelas usam `table.nt-table`.
-   - Imagens coladas (print, "Copiar imagem", HTML com `data:`) viram arquivos via `save_note_image`; nunca guardar base64 no `notes.json`. `<img>` leva `width/height` (sem reflow) e `loading="lazy"`.
+   - Imagens coladas (print, "Copiar imagem", HTML com `data:`) viram arquivos via `save_note_image`; nunca guardar base64 no banco de notas. `<img>` leva `width/height` (sem reflow) e `loading="lazy"`.
    - **Blocos de código**: salvos como `<pre data-lang="sql">texto</pre>` (`pre` sem `data-lang` = estilo Monoespaçado). No editor viram um widget `div.nt-code` (`contenteditable=false`, `noteCode.js`): linhas numeradas e realçadas, regiões dobráveis (chaves ou recuo, `codeBlock.js`), clique no código troca para o `codeEditor()` no lugar. Criar: botão `</>`, Ctrl+Shift+K ou ```` ```lang ```` + Enter. O HTML da nota sempre passa por `serializeEditorHtml()` (nunca `editor.innerHTML` direto) e todo HTML carregado/desfeito/colado passa por `hydrateCodeBlocks()`.
    - **Mermaid**: bloco `data-lang="mermaid"` alterna Visualizar / Código / Live (canto superior direito; Live = código e diagrama lado a lado, redesenhado ao digitar, mantendo o último diagrama válido se houver erro). A visualização tem zoom (Ctrl+roda, botões), arrastar e tela cheia (sobreposição em `document.body`, roda dá zoom, Esc sai). A biblioteca (`src/vendor/mermaid`) só carrega quando há diagrama e segue o tema claro/escuro; só redesenhar quando fonte ou tema mudarem de fato (`data-theme` é regravado com o mesmo valor ao carregar settings), senão zoom/posição se perdem.
    - **Atalhos de digitação** (`noteEditor.js`): no início da linha + Espaço, `#`/`##`/`###` (título/cabeçalho/subcabeçalho), `>` (citação), `-` `*` `+` `1.` `[ ]` (listas), ```` ``` ```` (código). Inline ao fechar o marcador: `**negrito**`, `*itálico*`, `` `código` ``, `~~tachado~~` (o cursor fica depois de um ZWSP transitório, removido na próxima tecla e em `editorHtml()`; o texto cru fica um passo atrás no desfazer).
    - **Menus** (`noteMenus.js`): selecionar texto mostra a barra de formatação abaixo da seleção; `/` no início da linha ou após espaço abre o menu de blocos (filtra pelo texto, setas/Enter/Tab, Esc mantém a `/`). Os itens chamam `runCommand` (inclui `mermaid`, `image`, `inline-code`, `clear`). Teclas consumidas pelos menus/blocos de código param a propagação (Esc no modo bandeja volta para a lista).
    - Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y usam `noteHistory.js`, não o undo nativo (que quebra com as edições diretas no DOM). Toda alteração deve passar por `changed()` no editor para entrar no histórico.
    - Markdown: menu "…" (e menus de contexto) importa `.md` como novas notas e exporta a nota (imagens copiadas para `<nome>.assets/`).
-   - Notas vazias são descartadas ao sair delas. Apagar move para "Apagadas Recentemente" (`deleted_at`); após 30 dias são removidas.
+   - Notas vazias são descartadas ao sair delas. Apagar move para "Apagadas Recentemente" (`deleted_at`); após 30 dias são removidas (`notes_list`).
+   - **Armazenamento** (`notes.db`, SQLite): `state.notes` tem só metadados; `content` fica `undefined` até a nota ser aberta (`ensureContent`). Editar marca `dirty` e grava só aquela nota (`noteStore.js`, fila em ordem); fixar/mover/apagar usam `notes_set_meta`. A lista usa o título/prévia gravados ou, com o conteúdo carregado, os derivados ao vivo. Na 1ª execução o `notes.json` é importado pelo JS (normalizado como antes) e renomeado para `notes.json.migrated`; se estiver ilegível, nada é tocado e o app avisa.
    - **Modo bandeja**: navegação em pilha Pastas → Lista → Nota dentro da janela 370x530. **Modo desktop**: botão de expandir chama `set_desktop_mode(true)`; layout de 3 colunas com barra unificada e botões de janela no estilo do SO (fechar = volta à bandeja e oculta). Ao entrar na aba Notas no modo bandeja, sempre abre a lista "Todas as Notas".
 
 4. **HTTP (cópia do Postman, visual das Notas)**:

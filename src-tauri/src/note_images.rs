@@ -1,7 +1,7 @@
 //! Imagens das notas.
 //!
 //! Cada imagem vira um arquivo em `<app_data>/note-images/` (nome = hash do conteúdo) e o
-//! HTML da nota guarda só a URL do protocolo `noteimg`. Assim o `notes.json` continua
+//! HTML da nota guarda só a URL do protocolo `noteimg`. Assim o notes.db continua
 //! pequeno: salvar uma nota não regrava nem reserializa as imagens.
 
 use std::collections::hash_map::DefaultHasher;
@@ -142,13 +142,11 @@ pub async fn export_note_images(app: tauri::AppHandle, names: Vec<String>, dir: 
     Ok(())
 }
 
-/// Apaga imagens que nenhuma nota (nem na lixeira) usa mais.
-#[tauri::command]
-pub async fn gc_note_images(app: tauri::AppHandle, keep: Vec<String>) -> Result<u32, String> {
-    let keep: HashSet<String> = keep.into_iter().collect();
+/// Apaga imagens que nenhuma nota (nem na lixeira) usa mais (`keep` vem do notes.db).
+pub fn gc_note_images(app: &tauri::AppHandle, keep: &HashSet<String>) -> Result<u32, String> {
     let now = SystemTime::now();
     let mut removed = 0;
-    for entry in fs::read_dir(images_dir(&app)?).map_err(|e| e.to_string())?.flatten() {
+    for entry in fs::read_dir(images_dir(app)?).map_err(|e| e.to_string())?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if keep.contains(&name) {
             continue;

@@ -58,12 +58,16 @@ function legacyToHtml(title, content) {
   return `<h1>${title ? escapeHtml(title) : "<br>"}</h1>${content ? body : ""}`;
 }
 
-/** Fills in fields added after v0.2 and migrates plain-text notes. */
+/** Notes copied from another OS carry the other WebView's image URL form. */
+export function normalizeNoteHtml(html) {
+  return html.includes("noteimg") ? html.replace(IMG_URL_RE, (_, name) => IMG_BASE + name) : html;
+}
+
+/** Fills in fields added after v0.2 and migrates plain-text notes (notes.json import). */
 export function normalizeNote(n) {
   const content = n.content || "";
   const isHtml = HTML_START.test(content);
-  // Notes copied from another OS carry the other WebView's image URL form.
-  const html = isHtml && content.includes("noteimg") ? content.replace(IMG_URL_RE, (_, name) => IMG_BASE + name) : content;
+  const html = isHtml ? normalizeNoteHtml(content) : content;
   const ts = Number.isFinite(n.updated_at) && n.updated_at > 0 ? n.updated_at : Math.floor(Number(n.id)) || Date.now();
   return {
     id: Math.floor(Number(n.id)) || Date.now(),

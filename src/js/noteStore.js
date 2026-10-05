@@ -1,0 +1,134 @@
+import { notesApi } from "./api.js";
+import { normalizeNote, normalizeNoteHtml, purgeExpiredTrash, noteLines, noteImageNames } from "./utils/noteContent.js";
+
+// Persistência das notas no notes.db (SQLite, src-tauri/src/notes_db.rs).
+//
+// state.notes guarda só metadados vindos de `notes_list` ({ id, title, preview, datas,
+// pinned, folder_id, deleted_at }); `content` fica undefined até a nota ser aberta
+// (ensureContent). Flags locais: `dirty` = HTML editado e ainda não gravado;
+// `saved` = a nota existe no banco. Gravações passam por uma fila, em ordem.
+
+let chain = Promise.resolve();
+
+/** Enfileira uma operação no banco; erros vão para onError (a fila continua). */
+function enqueue(op, onError) {
+  const run = chain.then(op);
+  chain = run.catch((e) => {
+    console.error("notes.db:", e);
+    onError?.(String(e));
+  });
+  return run;
+}
+
+/** Campos derivados do HTML que o banco guarda: título, prévia, texto da busca, imagens. */
+export function noteRecord(note) {
+  const lines = noteLines(note.content);
+  return {
+    id: note.id,
+    title: lines[0] || "",
+    preview: lines.slice(1).join(" "),
+    created_at: note.created_at,
+    updated_at: note.updated_at,
+    pinned: !!note.pinned,
+    folder_id: note.folder_id ?? 0,
+    deleted_at: note.deleted_at ?? null,
+    content: note.content,
+    plain: lines.join("\n"),
+    images: noteImageNames(note.content),
+  };
+}
+
+function metaOf(note) {
+  return {
+    id: note.id,
+    pinned: !!note.pinned,
+    folder_id: note.folder_id ?? 0,
+    deleted_at: note.deleted_at ?? null,
+    updated_at: note.updated_at,
+  };
+}
+
+/**
+ * Importa o notes.json/folders.json antigos na primeira execução (normalizados como antes:
+ * notas em texto puro viram HTML, URLs de imagem do outro SO, lixeira vencida).
+ * Devolve uma mensagem de erro ou null.
+ */
+async function migrateLegacy() {
+  let legacy;
+  try {
+    legacy = await notesApi.legacy();
+  } catch (e) {
+    return String(e);
+  }
+  if (!legacy || !Array.isArray(legacy.notes)) return null;
+  const notes = purgeExpiredTrash(legacy.notes.map(normalizeNote));
+  await notesApi.import(notes.map(noteRecord), legacy.folders || []);
+  return null;
+}
+
+/** Carrega pastas e metadados das notas. { notes, folders, error } */
+export async function loadNoteStore() {
+  const error = await migrateLegacy().catch((e) => String(e));
+  const [metas, folders] = await Promise.all([notesApi.list(), notesApi.folders()]);
+  const notes = (Array.isArray(metas) ? metas : []).map((m) => ({ ...m, content: undefined, dirty: false, saved: true }));
+  return { notes, folders: Array.isArray(folders) ? folders : [], error };
+}
+
+/** HTML da nota, buscado no banco na primeira vez que ela é aberta. */
+export async function ensureContent(note) {
+  if (note.content === undefined) {
+    const html = await notesApi.get(note.id);
+    // Pode ter sido editada enquanto a busca acontecia: o que está na memória vale mais.
+    if (note.content === undefined) note.content = normalizeNoteHtml(typeof html === "string" ? html : "");
+  }
+  return note.content;
+}
+
+/** Grava o HTML (e metadados) das notas editadas. */
+export function saveNoteContent(notes, onError) {
+  for (const note of notes) {
+    if (!note.dirty || note.content === undefined) continue;
+    note.dirty = false;
+    const record = noteRecord(note);
+    enqueue(() => notesApi.save(record), onError).then(
+      () => (note.saved = true),
+      () => (note.dirty = true), // tenta de novo na próxima gravação
+    );
+  }
+}
+
+/** Grava fixada/pasta/lixeira/data. Nota editada vai inteira; nota nunca gravada (vazia) é ignorada. */
+export function saveNoteMeta(notes, onError) {
+  const metas = [];
+  for (const note of notes) {
+    if (note.dirty && note.content !== undefined) saveNoteContent([note], onError);
+    else if (note.saved) metas.push(metaOf(note));
+  }
+  if (metas.length) enqueue(() => notesApi.setMeta(metas), onError).catch(() => {});
+}
+
+/** Apaga de vez (só as que existem no banco). */
+export function deleteNotes(notes, onError) {
+  const ids = notes.filter((n) => n.saved).map((n) => n.id);
+  for (const n of notes) n.dirty = false;
+  if (ids.length) enqueue(() => notesApi.delete(ids), onError).catch(() => {});
+}
+
+export function saveFolders(folders, onError) {
+  const copy = folders.map((f) => ({ id: f.id, name: f.name }));
+  enqueue(() => notesApi.saveFolders(copy), onError).catch(() => {});
+}
+
+/** Ids das notas que contêm o texto (busca no banco; espera as gravações pendentes). */
+export function searchNotes(query) {
+  return enqueue(() => notesApi.search(query)).then((ids) => new Set(Array.isArray(ids) ? ids : []));
+}
+
+export function collectImageGarbage() {
+  enqueue(() => notesApi.gcImages()).catch(() => {});
+}
+
+/** Promessa resolvida quando todas as gravações enfileiradas terminarem. */
+export function whenSaved() {
+  return chain;
+}
